@@ -1,48 +1,33 @@
-# ADALM-Pluto WiFi 2.4 GHz Spectrum Analyzer
+# Simple Spectrum
+A lightweight real time spectrum viewer for the ADALM Pluto SDR using Python, pyadi iio, and pyqtgraph.
 
-A lightweight Python-based spectrum analyzer for the ADALM-Pluto SDR, focused on real-time analysis of the 2.4 GHz ISM band (WiFi, Bluetooth, and related signals).
-
-The project provides a simple, hackable GUI for visualizing RF activity using a properly normalized FFT / power spectral density (PSD) pipeline built on top of the Analog Devices IIO stack.
-
-This tool is intended for SDR experimentation, RF inspection, and learning purposes rather than calibrated laboratory measurements.
-
----
+This is an FFT based spectrum display (not a swept analyzer). The visible span is determined by the Pluto sample rate and the frequency resolution is determined by FFT size.
 
 ## Features
+- Real time spectrum plot with center frequency control
+- Span control (changes SDR sample rate and RF bandwidth)
+- Gain control mode selection (manual, fast attack, slow attack, hybrid)
+- Manual gain control when in manual mode
+- Auto Y scaling and manual Y scaling (Y min, Y max)
+- Hover tooltip showing frequency and magnitude at the nearest FFT bin
+- Optional auto span behavior (keeps X range aligned to LO ± SR/2)
 
-- Real-time spectrum visualization using ADALM-Pluto  
-- Focused on the 2.4 GHz ISM band (WiFi channels 1–13)  
-- Single-channel RX configuration compatible with stock Pluto firmware  
-- Windowed FFT with correct PSD normalization  
-- Live frequency axis referenced to RF center frequency  
-- Adjustable center frequency and gain  
-- Fast PyQt / pyqtgraph GUI  
-- Clean and readable DSP pipeline suitable for extension  
-
----
-
-## Architecture Overview
-
-**Signal chain:**
-
-1. ADALM-Pluto RX (complex baseband samples)  
-2. Optional DC offset removal  
-3. Windowing (Hann window) to reduce spectral leakage  
-4. FFT and frequency shift  
-5. Power Spectral Density (PSD) normalization  
-6. Logarithmic magnitude display (dB scale)  
-
-Magnitude values are **relative**, not absolute power (dBm).
-
----
+## How it works
+- **Center frequency** sets the Pluto LO (rx_lo).
+- **Span** is the sampled bandwidth and equals the **sample rate**.
+  - Visible frequency range is approximately: `LO ± sample_rate / 2`
+- **Resolution bandwidth (RBW)** in an FFT analyzer is approximately:
+  - `RBW ≈ sample_rate / FFT_size`
+- The displayed values are a PSD style magnitude in dB (relative, not calibrated dBm).
 
 ## Requirements
+- Python 3.9 or newer recommended
+- ADALM Pluto SDR connected via USB or Ethernet gadget mode
+- Pluto reachable at `ip:192.168.2.1` (default gadget mode)
 
-- Python 3.9+
-- ADALM-Pluto SDR
-- USB or Ethernet connection to Pluto
-
-### Python dependencies
+### Linux packages you may need
+On Ubuntu or Debian:
 
 ```bash
-pip install numpy pyqtgraph pyadi-iio
+sudo apt update
+sudo apt install -y python3 python3-pip python3-venv libusb-1.0-0
