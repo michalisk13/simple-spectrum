@@ -45,8 +45,19 @@ class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
 
         self.freq_edit = QtWidgets.QLineEdit(str(self.center_hz))
         self.freq_edit.setPlaceholderText("Center frequency in Hz, eg 2437000000")
-        controls.addWidget(QtWidgets.QLabel("Center Hz"))
+
+        # Center frequency input
+        controls.addWidget(QtWidgets.QLabel("Center Freq:"))
+        self.freq_edit = QtWidgets.QLineEdit("2437")
+        self.freq_edit.setPlaceholderText("eg 2437")
+        self.freq_edit.setFixedWidth(120)
         controls.addWidget(self.freq_edit)
+
+        self.freq_unit = QtWidgets.QComboBox()
+        self.freq_unit.addItems(["Hz", "kHz", "MHz", "GHz"])
+        self.freq_unit.setCurrentText("MHz")
+        self.freq_unit.setFixedWidth(80)
+        controls.addWidget(self.freq_unit)
 
         self.set_btn = QtWidgets.QPushButton("Set")
         controls.addWidget(self.set_btn)
@@ -78,11 +89,32 @@ class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
         self.sdr.rx_lo = hz
         self.center_hz = hz
 
+        # Keep UI consistent, show center in selected unit
+        if hasattr(self, "freq_unit") and hasattr(self, "freq_edit"):
+            unit = self.freq_unit.currentText()
+            inv = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[unit]
+            self.freq_edit.setText(f"{self.center_hz / inv:.6g}")
+
+
+
     def on_set_center(self):
         try:
-            self.set_center(int(self.freq_edit.text().strip()))
+            hz = self._parse_freq_to_hz(self.freq_edit.text(), self.freq_unit.currentText())
+            self.set_center(hz)
+            self.status.setText(f"Center set to {hz} Hz")
         except Exception as e:
             self.status.setText(f"Bad center freq: {e}")
+
+    def _parse_freq_to_hz(self, value_str: str, unit: str) -> int:
+        value = float(value_str.strip())
+
+        scale = {
+            "Hz": 1.0,
+            "kHz": 1e3,
+            "MHz": 1e6,
+            "GHz": 1e9,
+        }[unit]
+        return int(value * scale)
 
     def read_samples(self):
         x = self.sdr.rx()
@@ -121,7 +153,6 @@ class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
             )
         except Exception as e:
             self.status.setText(f"Error: {e}")
-
 
 def main():
     app = pg.mkQApp("Pluto WiFi 2.4 Spectrum")
