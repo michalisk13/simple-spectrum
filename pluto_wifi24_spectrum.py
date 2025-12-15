@@ -3,6 +3,8 @@ import numpy as np
 import pyqtgraph as pg
 from pyqtgraph.Qt import QtCore, QtWidgets
 import adi
+from pyqtgraph import SignalProxy
+
 
 
 class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
@@ -92,7 +94,7 @@ class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
         row1.addWidget(QtWidgets.QLabel("Span"))
 
         self.span_cb = QtWidgets.QComboBox()
-        self.span_cb.addItems(["5 MHz", "10 MHz", "20 MHz", "30 MHz", "40 MHz",
+        self.span_cb.addItems(["1 MHz" ,"5 MHz", "10 MHz", "20 MHz", "30 MHz", "40 MHz",
                                "50 MHz"])
         self.span_cb.setCurrentText("20 MHz")
         self.span_cb.setFixedWidth(90)
@@ -154,13 +156,60 @@ class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
         # Visible curve
         self.curve = self.plot.plot()
 
+        # Speed up rendering for large arrays
+        self.plot.setClipToView(True)
+        self.curve.setClipToView(True)
+        self.curve.setDownsampling(auto=True, method="peak")
+
+
+        # Crosshair lines
+        self.vline = pg.InfiniteLine(angle=90, movable=False)
+        self.plot.addItem(self.vline, ignoreBounds=True)
+
+        # Tooltip style hover box
+        self.hover_text = pg.TextItem(
+            "",
+            anchor=(0, 1),  # top left of the box sits at the position we set
+            color=(255, 255, 255),
+            fill=pg.mkBrush(0, 0, 0, 180)  # semi transparent background
+        )
+        self.hover_text.setZValue(1e6)
+        self.plot.addItem(self.hover_text)
+
+
+        # Hover state for fast O(1) lookup
+        self._last_mag = None
+        self._last_f0 = None
+        self._last_df = None
+        self._last_n = None
+        self._last_hover_idx = None
+
+
+        # Keep last spectrum so we can query magnitude at the cursor
+        self._last_freqs = None
+        self._last_mag = None
+
+        # Last hover index to avoid redundant updates
+        self._last_hover_idx = None
+        self._last_f0 = None
+        self._last_df = None
+        self._last_n = None
+
+        # Mouse move handler, rate limited so it stays fast [update: Set the proxy rateLimit lower, to 20 Hz]
+        self._mouse_proxy = SignalProxy(
+            self.plot.scene().sigMouseMoved,
+            rateLimit=20,
+            slot=self.on_mouse_moved
+        )
+
+
         # Now that UI exists, set center frequency safely
         self.set_center(self.center_hz)
 
         # Update timer
         self.timer = QtCore.QTimer()
         self.timer.timeout.connect(self.update_plot)
-        self.timer.start(120)
+        self.timer.start(220)
 
     # ----------------------------
     # Helpers
@@ -277,6 +326,50 @@ class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
         except Exception as e:
             self.status.setText(f"Bad Y range: {e}")
 
+    def on_mouse_moved(self, evt):
+        pos = evt[0]
+        vb = self.plot.vb
+
+        # Only when inside plot area
+        if not vb.sceneBoundingRect().contains(pos):
+            self.hover_text.setText("")
+            return
+
+        # Convert to plot coordinates
+        mouse_point = vb.mapSceneToView(pos)
+        fx = float(mouse_point.x())
+
+        # O(1) lookup needs spectrum state
+        if self._last_mag is None or self._last_f0 is None:
+            text = f"{fx/1e6:.6f} MHz"
+        else:
+            f0 = self._last_f0
+            df = self._last_df
+            n = self._last_n
+
+            idx = int((fx - f0) / df)
+            if idx < 0:
+                idx = 0
+            elif idx >= n:
+                idx = n - 1
+
+            if idx == self._last_hover_idx:
+                return
+            self._last_hover_idx = idx
+
+            f_bin = f0 + idx * df
+            m_bin = float(self._last_mag[idx])
+            text = f"{f_bin/1e6:.6f} MHz\n{m_bin:.2f} dB"
+
+        # Place tooltip slightly offset from cursor so it does not sit under it
+        # Use view range to compute a sensible offset independent of zoom
+        (xmin, xmax), (ymin, ymax) = vb.viewRange()
+        dx = (xmax - xmin) * 0.01
+        dy = (ymax - ymin) * 0.05
+
+        self.hover_text.setText(text)
+        self.hover_text.setPos(mouse_point.x() + dx, mouse_point.y() - dy)
+
 
     # ----------------------------
     # Streaming and plotting
@@ -322,6 +415,13 @@ class PlutoWifi24Spectrum(QtWidgets.QMainWindow):
 
             # Update curve
             self.curve.setData(freqs, mag)
+            # Store parameters needed for hover readout (avoid argmin over full array)
+            self._last_mag = mag
+            self._last_f0 = float(freqs[0])
+            self._last_df = float(freqs[1] - freqs[0])
+            self._last_n = int(len(freqs))
+
+
 
             # Auto span behavior: snap x axis to LO ± SR/2 when enabled
             if self.autospan_cb.isChecked():
