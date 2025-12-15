@@ -30,4 +30,59 @@ On Ubuntu or Debian:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv libusb-1.0-0
+sudo apt install -y python3 python3-pip python3-venv libusb-1.0-0 "
+```
+
+## Tips
+
+### GSM and narrow signals
+GSM channels are narrow (200 kHz) and bursty. For better visibility:
+
+- Use a smaller span (for example **1 to 5 MHz**)
+- Use **fast_attack** gain mode to detect activity quickly, then switch to **manual** to avoid saturation
+
+Also note that **GSM900 uplink and downlink are different bands**.  
+Uplink signals may only appear when a phone nearby is actively transmitting.
+
+---
+
+### Performance
+High FFT sizes update a lot of points per frame. If the GUI feels slow:
+
+- Use a smaller FFT size (when that feature is added)
+- Increase the update interval
+- Use downsampling and clip-to-view  
+  (already enabled in the refactored code)
+
+---
+
+## Troubleshooting
+
+### I do not see any signal
+Confirm that you can receive samples from the Pluto:
+
+```bash
+python -c "import adi; s=adi.Pluto('ip:192.168.2.1'); s.rx_enabled_channels=[0]; s.rx_buffer_size=4096; s.rx_destroy_buffer(); print(len(s.rx()))"
+```
+
+## TODO
+
+- Add FFT size selector to control **RBW (Resolution Bandwidth)**
+- Display computed **RBW** in the status line
+- Add averaging and **VBW-style smoothing** (EMA over frames)
+- Add **peak hold** and **max hold** traces
+- Add **marker support** (click to place marker, delta markers)
+- Add **waterfall view**
+- Add presets for common bands  
+  - WiFi 2.4  
+  - GSM900 uplink  
+  - GSM900 downlink  
+  - LTE bands
+- Add calibration option  
+  - Relative dB to dBFS  
+  - Approximate dBm using external calibration
+- Add **CSV export** of current trace
+- Add **headless mode** for logging
+
+
+
