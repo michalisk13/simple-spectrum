@@ -500,15 +500,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.proc = SpectrumProcessor(cfg.fft_size, cfg.window)
         self.hover = HoverReadout()
 
-        self._build_ui()
-        self._wire_events()
-
-        self.worker = SpectrumWorker(self.sdr, self.proc, cfg)
-        self.worker.new_data.connect(self.on_new_data)
-        self.worker.start()
-
-        self._apply_initial_state()
-
         self.last_update_ts: Optional[float] = None
         self.vbw_state: Optional[np.ndarray] = None
         self.avg_trace: Optional[np.ndarray] = None
@@ -523,6 +514,15 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.last_auto_ref_update: float = 0.0
         self.auto_ref_tau_s: float = 0.8
         self.auto_ref_hysteresis_db: float = 1.5
+
+        self._build_ui()
+        self._wire_events()
+
+        self.worker = SpectrumWorker(self.sdr, self.proc, cfg)
+        self.worker.new_data.connect(self.on_new_data)
+        self.worker.start()
+
+        self._apply_initial_state()
 
         # UI refresh timer for display update rate limiting (~10 Hz).
         self.ui_timer = QtCore.QTimer()
