@@ -32,6 +32,7 @@ import adi
 
 
 CAL_PATH = os.path.join(os.path.dirname(__file__), "spectrum-monitor-calibration.json")
+STATE_PATH = os.path.join(os.path.dirname(__file__), "spectrum-monitor-state.json")
 
 
 @dataclass
@@ -77,7 +78,7 @@ class SpectrumConfig:
 
     # Detector/trace controls.
     detector: str = "RMS"
-    trace_type: str = "Clear"
+    trace_type: str = "Live"
     avg_count: int = 10
     avg_mode: str = "RMS"
 
@@ -473,10 +474,27 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.cfg = cfg
         self.cal = Calibration.load()
+        self.state = self._load_state()
+
+        # Restore persisted analyzer settings for an instrument-like feel.
+        self.cfg.ref_level_db = float(self.state.get("ref_level_db", self.cfg.ref_level_db))
+        self.cfg.display_range_db = float(self.state.get("display_range_db", self.cfg.display_range_db))
+        self.cfg.rbw_mode = self.state.get("rbw_mode", self.cfg.rbw_mode)
+        self.cfg.vbw_mode = self.state.get("vbw_mode", self.cfg.vbw_mode)
+        self.cfg.rbw_hz = float(self.state.get("rbw_hz", self.cfg.rbw_hz))
+        self.cfg.vbw_hz = float(self.state.get("vbw_hz", self.cfg.vbw_hz))
+        self.cfg.window = self.state.get("window", self.cfg.window)
+        self.cfg.detector = self.state.get("detector", self.cfg.detector)
+        self.cfg.trace_type = self.state.get("trace_mode", self.cfg.trace_type)
+        self.cfg.update_ms = int(self.state.get("update_ms", self.cfg.update_ms))
+        self.auto_scale_enabled = bool(self.state.get("auto_scale", True))
+        self.peak_hold_enabled = bool(self.state.get("peak_hold_enabled", False))
 
         self.setWindowTitle("Pluto Spectrum Viewer")
 
         pg.setConfigOptions(antialias=False)
+        pg.setConfigOption("background", (10, 10, 10))
+        pg.setConfigOption("foreground", "w")
 
         self.sdr = PlutoSdr(cfg)
         self.proc = SpectrumProcessor(cfg.fft_size, cfg.window)
@@ -495,14 +513,25 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.vbw_state: Optional[np.ndarray] = None
         self.avg_trace: Optional[np.ndarray] = None
         self.max_trace: Optional[np.ndarray] = None
-        self.min_trace: Optional[np.ndarray] = None
         self.latest_power: Optional[np.ndarray] = None
         self.latest_display: Optional[np.ndarray] = None
         self.latest_freqs: Optional[np.ndarray] = None
+        self.latest_payload: Optional[Dict] = None
         self.marker1: Optional[int] = None
         self.marker2: Optional[int] = None
+        self.last_ui_update_ts: float = 0.0
+        self.last_auto_ref_update: float = 0.0
+        self.auto_ref_tau_s: float = 0.8
+        self.auto_ref_hysteresis_db: float = 1.5
+
+        # UI refresh timer for display update rate limiting (~10 Hz).
+        self.ui_timer = QtCore.QTimer()
+        self.ui_timer.timeout.connect(self.refresh_display)
+        self.ui_timer.start(100)
 
     def closeEvent(self, event):
+        # Persist state for predictable startup behavior.
+        self._save_state()
         self.worker.stop()
         self.worker.wait(1000)
         event.accept()
@@ -511,218 +540,241 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         cw = QtWidgets.QWidget()
         self.setCentralWidget(cw)
         layout = QtWidgets.QVBoxLayout(cw)
-
-        control_panel = QtWidgets.QWidget()
-        control_layout = QtWidgets.QVBoxLayout(control_panel)
-        control_layout.setContentsMargins(0, 0, 0, 0)
-        control_layout.setSpacing(6)
-        layout.addWidget(control_panel)
+        layout.setSpacing(6)
 
         row1 = QtWidgets.QHBoxLayout()
-        row1.setSpacing(10)
-        control_layout.addLayout(row1)
+        row1.setSpacing(8)
+        layout.addLayout(row1)
+        row2 = QtWidgets.QHBoxLayout()
+        row2.setSpacing(8)
+        layout.addLayout(row2)
 
-        row1.addWidget(QtWidgets.QLabel("Center"))
+        rf_box = QtWidgets.QGroupBox("RF")
+        rf_layout = QtWidgets.QGridLayout(rf_box)
+        rf_layout.setHorizontalSpacing(6)
+        rf_layout.setVerticalSpacing(4)
+
+        rf_layout.addWidget(QtWidgets.QLabel("Center"), 0, 0)
         self.freq_edit = QtWidgets.QLineEdit("2437")
         self.freq_edit.setFixedWidth(90)
-        row1.addWidget(self.freq_edit)
+        rf_layout.addWidget(self.freq_edit, 0, 1)
 
         self.freq_unit = QtWidgets.QComboBox()
         self.freq_unit.addItems(["Hz", "kHz", "MHz", "GHz"])
         self.freq_unit.setCurrentText("MHz")
-        self.freq_unit.setFixedWidth(80)
-        row1.addWidget(self.freq_unit)
+        self.freq_unit.setFixedWidth(70)
+        rf_layout.addWidget(self.freq_unit, 0, 2)
 
         self.set_btn = QtWidgets.QPushButton("Set")
-        row1.addWidget(self.set_btn)
+        rf_layout.addWidget(self.set_btn, 0, 3)
 
-        row1.addSpacing(16)
-        row1.addWidget(QtWidgets.QLabel("Span"))
+        rf_layout.addWidget(QtWidgets.QLabel("Span"), 1, 0)
         self.span_cb = QtWidgets.QComboBox()
         self.span_cb.addItems(["1 MHz", "5 MHz", "10 MHz", "20 MHz", "30 MHz", "40 MHz", "50 MHz"])
         self.span_cb.setCurrentText("20 MHz")
         self.span_cb.setFixedWidth(90)
-        row1.addWidget(self.span_cb)
+        rf_layout.addWidget(self.span_cb, 1, 1)
 
         self.apply_span_btn = QtWidgets.QPushButton("Apply")
-        row1.addWidget(self.apply_span_btn)
+        rf_layout.addWidget(self.apply_span_btn, 1, 2)
 
-        row1.addWidget(QtWidgets.QLabel("RF BW"))
+        rf_layout.addWidget(QtWidgets.QLabel("RF BW"), 1, 3)
         self.rfbw_edit = QtWidgets.QLineEdit(str(self.cfg.rf_bw_hz))
         self.rfbw_edit.setFixedWidth(90)
-        row1.addWidget(self.rfbw_edit)
+        rf_layout.addWidget(self.rfbw_edit, 1, 4)
 
         self.apply_rfbw_btn = QtWidgets.QPushButton("Set")
-        row1.addWidget(self.apply_rfbw_btn)
+        rf_layout.addWidget(self.apply_rfbw_btn, 1, 5)
 
-        row1.addSpacing(16)
-        row1.addWidget(QtWidgets.QLabel("Gain mode"))
+        rf_layout.addWidget(QtWidgets.QLabel("Gain mode"), 2, 0)
         self.gainmode_cb = QtWidgets.QComboBox()
         self.gainmode_cb.addItems(["manual", "fast_attack", "slow_attack", "hybrid"])
         self.gainmode_cb.setCurrentText(self.cfg.gain_mode)
-        row1.addWidget(self.gainmode_cb)
+        rf_layout.addWidget(self.gainmode_cb, 2, 1)
 
-        row1.addWidget(QtWidgets.QLabel("Gain dB"))
+        rf_layout.addWidget(QtWidgets.QLabel("Gain dB"), 2, 2)
         self.gain_edit = QtWidgets.QLineEdit(str(self.cfg.gain_db))
         self.gain_edit.setFixedWidth(60)
-        row1.addWidget(self.gain_edit)
+        rf_layout.addWidget(self.gain_edit, 2, 3)
 
-        self.apply_gain_btn = QtWidgets.QPushButton("Apply gain")
-        row1.addWidget(self.apply_gain_btn)
+        self.apply_gain_btn = QtWidgets.QPushButton("Apply")
+        rf_layout.addWidget(self.apply_gain_btn, 2, 4)
 
         self.measurement_cb = QtWidgets.QCheckBox("Measurement mode")
         self.measurement_cb.setChecked(self.cfg.measurement_mode)
-        row1.addWidget(self.measurement_cb)
+        rf_layout.addWidget(self.measurement_cb, 3, 0, 1, 3)
 
-        row1.addStretch(1)
+        row1.addWidget(rf_box, 3)
 
-        row2 = QtWidgets.QHBoxLayout()
-        row2.setSpacing(10)
-        control_layout.addLayout(row2)
+        sweep_box = QtWidgets.QGroupBox("Sweep")
+        sweep_layout = QtWidgets.QGridLayout(sweep_box)
+        sweep_layout.setHorizontalSpacing(6)
+        sweep_layout.setVerticalSpacing(4)
 
-        row2.addWidget(QtWidgets.QLabel("RBW"))
+        sweep_layout.addWidget(QtWidgets.QLabel("RBW"), 0, 0)
         self.rbw_mode_cb = QtWidgets.QComboBox()
         self.rbw_mode_cb.addItems(["Auto", "Manual"])
         self.rbw_mode_cb.setCurrentText(self.cfg.rbw_mode)
-        row2.addWidget(self.rbw_mode_cb)
+        sweep_layout.addWidget(self.rbw_mode_cb, 0, 1)
 
         self.rbw_edit = QtWidgets.QLineEdit(f"{self.cfg.rbw_hz:.0f}")
-        self.rbw_edit.setFixedWidth(90)
-        row2.addWidget(self.rbw_edit)
+        self.rbw_edit.setFixedWidth(80)
+        sweep_layout.addWidget(self.rbw_edit, 0, 2)
 
-        self.rbw_apply_btn = QtWidgets.QPushButton("Apply RBW")
-        row2.addWidget(self.rbw_apply_btn)
+        self.rbw_apply_btn = QtWidgets.QPushButton("Apply")
+        sweep_layout.addWidget(self.rbw_apply_btn, 0, 3)
 
-        row2.addWidget(QtWidgets.QLabel("Window"))
-        self.window_cb = QtWidgets.QComboBox()
-        self.window_cb.addItems(["Hann", "Blackman Harris", "Flat top"])
-        self.window_cb.setCurrentText(self.cfg.window)
-        row2.addWidget(self.window_cb)
-
-        row2.addWidget(QtWidgets.QLabel("VBW"))
+        sweep_layout.addWidget(QtWidgets.QLabel("VBW"), 1, 0)
         self.vbw_mode_cb = QtWidgets.QComboBox()
         self.vbw_mode_cb.addItems(["Off", "Auto", "Manual"])
         self.vbw_mode_cb.setCurrentText(self.cfg.vbw_mode)
-        row2.addWidget(self.vbw_mode_cb)
+        sweep_layout.addWidget(self.vbw_mode_cb, 1, 1)
 
         self.vbw_edit = QtWidgets.QLineEdit(f"{self.cfg.vbw_hz:.0f}")
         self.vbw_edit.setFixedWidth(80)
-        row2.addWidget(self.vbw_edit)
+        sweep_layout.addWidget(self.vbw_edit, 1, 2)
 
-        row2.addWidget(QtWidgets.QLabel("Detector"))
+        sweep_layout.addWidget(QtWidgets.QLabel("Window"), 2, 0)
+        self.window_cb = QtWidgets.QComboBox()
+        self.window_cb.addItems(["Hann", "Blackman Harris", "Flat top"])
+        self.window_cb.setCurrentText(self.cfg.window)
+        sweep_layout.addWidget(self.window_cb, 2, 1)
+
+        sweep_layout.addWidget(QtWidgets.QLabel("Detector"), 2, 2)
         self.detector_cb = QtWidgets.QComboBox()
         self.detector_cb.addItems(["Sample", "Peak", "RMS"])
         self.detector_cb.setCurrentText(self.cfg.detector)
-        row2.addWidget(self.detector_cb)
+        sweep_layout.addWidget(self.detector_cb, 2, 3)
 
-        row2.addWidget(QtWidgets.QLabel("Trace"))
-        self.trace_cb = QtWidgets.QComboBox()
-        self.trace_cb.addItems(["Clear", "Max Hold", "Min Hold", "Average"])
-        self.trace_cb.setCurrentText(self.cfg.trace_type)
-        row2.addWidget(self.trace_cb)
+        sweep_layout.addWidget(QtWidgets.QLabel("Update (ms)"), 3, 0)
+        self.update_ms_edit = QtWidgets.QLineEdit(str(self.cfg.update_ms))
+        self.update_ms_edit.setFixedWidth(70)
+        sweep_layout.addWidget(self.update_ms_edit, 3, 1)
 
-        self.clear_trace_btn = QtWidgets.QPushButton("Clear trace")
-        row2.addWidget(self.clear_trace_btn)
+        row1.addWidget(sweep_box, 2)
 
-        row2.addStretch(1)
+        trace_box = QtWidgets.QGroupBox("Trace / Display")
+        trace_layout = QtWidgets.QGridLayout(trace_box)
+        trace_layout.setHorizontalSpacing(6)
+        trace_layout.setVerticalSpacing(4)
 
-        row3 = QtWidgets.QHBoxLayout()
-        row3.setSpacing(10)
-        control_layout.addLayout(row3)
+        self.trace_group = QtWidgets.QButtonGroup(trace_box)
+        self.trace_live_rb = QtWidgets.QRadioButton("Live")
+        self.trace_avg_rb = QtWidgets.QRadioButton("Average")
+        self.trace_peak_rb = QtWidgets.QRadioButton("Peak Hold")
+        self.trace_group.addButton(self.trace_live_rb)
+        self.trace_group.addButton(self.trace_avg_rb)
+        self.trace_group.addButton(self.trace_peak_rb)
+        self.trace_live_rb.setChecked(True)
 
-        row3.addWidget(QtWidgets.QLabel("Avg count"))
+        trace_layout.addWidget(QtWidgets.QLabel("Trace mode"), 0, 0)
+        trace_layout.addWidget(self.trace_live_rb, 0, 1)
+        trace_layout.addWidget(self.trace_avg_rb, 0, 2)
+        trace_layout.addWidget(self.trace_peak_rb, 0, 3)
+
+        self.peak_hold_toggle = QtWidgets.QCheckBox("Peak Hold ON")
+        self.peak_hold_toggle.setChecked(False)
+        trace_layout.addWidget(self.peak_hold_toggle, 1, 0, 1, 2)
+
+        self.clear_peak_btn = QtWidgets.QPushButton("Clear Peak Hold")
+        trace_layout.addWidget(self.clear_peak_btn, 1, 2, 1, 2)
+
+        trace_layout.addWidget(QtWidgets.QLabel("Avg count"), 2, 0)
         self.avg_edit = QtWidgets.QLineEdit(str(self.cfg.avg_count))
         self.avg_edit.setFixedWidth(60)
-        row3.addWidget(self.avg_edit)
+        trace_layout.addWidget(self.avg_edit, 2, 1)
 
         self.avg_mode_cb = QtWidgets.QComboBox()
         self.avg_mode_cb.addItems(["RMS", "Log"])
         self.avg_mode_cb.setCurrentText(self.cfg.avg_mode)
-        row3.addWidget(self.avg_mode_cb)
+        trace_layout.addWidget(self.avg_mode_cb, 2, 2)
 
-        row3.addWidget(QtWidgets.QLabel("Amplitude"))
+        trace_layout.addWidget(QtWidgets.QLabel("Amplitude"), 3, 0)
         self.amp_mode_cb = QtWidgets.QComboBox()
         self._update_amp_modes()
-        row3.addWidget(self.amp_mode_cb)
+        trace_layout.addWidget(self.amp_mode_cb, 3, 1)
 
-        row3.addWidget(QtWidgets.QLabel("Ref level"))
+        trace_layout.addWidget(QtWidgets.QLabel("Ref level"), 3, 2)
         self.ref_edit = QtWidgets.QLineEdit(f"{self.cfg.ref_level_db:.1f}")
         self.ref_edit.setFixedWidth(70)
-        row3.addWidget(self.ref_edit)
+        trace_layout.addWidget(self.ref_edit, 3, 3)
 
-        row3.addWidget(QtWidgets.QLabel("Range"))
-        self.range_edit = QtWidgets.QLineEdit(f"{self.cfg.display_range_db:.1f}")
-        self.range_edit.setFixedWidth(70)
-        row3.addWidget(self.range_edit)
+        trace_layout.addWidget(QtWidgets.QLabel("Scale (dB/div)"), 4, 0)
+        self.scale_edit = QtWidgets.QLineEdit("10")
+        self.scale_edit.setFixedWidth(60)
+        trace_layout.addWidget(self.scale_edit, 4, 1)
 
-        self.auto_ref_cb = QtWidgets.QCheckBox("Auto ref")
+        self.range_label = QtWidgets.QLabel("Range: 100 dB")
+        trace_layout.addWidget(self.range_label, 4, 2, 1, 2)
+
+        self.auto_ref_cb = QtWidgets.QCheckBox("Auto Scale")
         self.auto_ref_cb.setChecked(True)
-        row3.addWidget(self.auto_ref_cb)
+        trace_layout.addWidget(self.auto_ref_cb, 5, 0, 1, 2)
 
         self.dc_remove_cb = QtWidgets.QCheckBox("DC remove")
         self.dc_remove_cb.setChecked(self.cfg.dc_remove)
-        row3.addWidget(self.dc_remove_cb)
+        trace_layout.addWidget(self.dc_remove_cb, 5, 2)
 
-        row3.addWidget(QtWidgets.QLabel("DC blank bins"))
+        trace_layout.addWidget(QtWidgets.QLabel("DC blank bins"), 5, 3)
         self.dc_blank_edit = QtWidgets.QLineEdit(str(self.cfg.dc_blank_bins))
         self.dc_blank_edit.setFixedWidth(50)
-        row3.addWidget(self.dc_blank_edit)
+        trace_layout.addWidget(self.dc_blank_edit, 5, 4)
 
-        row3.addStretch(1)
+        row2.addWidget(trace_box, 3)
 
-        row4 = QtWidgets.QHBoxLayout()
-        row4.setSpacing(10)
-        control_layout.addLayout(row4)
+        markers_box = QtWidgets.QGroupBox("Markers")
+        markers_layout = QtWidgets.QVBoxLayout(markers_box)
+        markers_layout.setSpacing(4)
+        self.marker_info = QtWidgets.QLabel("M1: --\nM2: --\nΔ : --")
+        self.marker_info.setStyleSheet("QLabel { font-family: monospace; }")
+        markers_layout.addWidget(self.marker_info)
 
-        row4.addWidget(QtWidgets.QLabel("Calibration"))
+        marker_btns = QtWidgets.QHBoxLayout()
+        self.marker_peak_btn = QtWidgets.QPushButton("Peak")
+        self.marker_left_btn = QtWidgets.QPushButton("Next ◀")
+        self.marker_right_btn = QtWidgets.QPushButton("Next ▶")
+        self.clear_markers_btn = QtWidgets.QPushButton("Clear")
+        marker_btns.addWidget(self.marker_peak_btn)
+        marker_btns.addWidget(self.marker_left_btn)
+        marker_btns.addWidget(self.marker_right_btn)
+        marker_btns.addWidget(self.clear_markers_btn)
+        markers_layout.addLayout(marker_btns)
+
+        row2.addWidget(markers_box, 2)
+
+        cal_box = QtWidgets.QGroupBox("Calibration")
+        cal_layout = QtWidgets.QGridLayout(cal_box)
+        cal_layout.setHorizontalSpacing(6)
+        cal_layout.setVerticalSpacing(4)
+
+        cal_layout.addWidget(QtWidgets.QLabel("Offset dB"), 0, 0)
         self.cal_offset_edit = QtWidgets.QLineEdit(
             "" if self.cal.dbfs_to_dbm_offset is None else f"{self.cal.dbfs_to_dbm_offset:.2f}"
         )
-        self.cal_offset_edit.setFixedWidth(80)
-        row4.addWidget(self.cal_offset_edit)
+        self.cal_offset_edit.setFixedWidth(70)
+        cal_layout.addWidget(self.cal_offset_edit, 0, 1)
 
-        row4.addWidget(QtWidgets.QLabel("Ext gain"))
+        cal_layout.addWidget(QtWidgets.QLabel("Ext gain"), 0, 2)
         self.cal_gain_edit = QtWidgets.QLineEdit(f"{self.cal.external_gain_db:.2f}")
         self.cal_gain_edit.setFixedWidth(60)
-        row4.addWidget(self.cal_gain_edit)
+        cal_layout.addWidget(self.cal_gain_edit, 0, 3)
 
-        self.apply_cal_btn = QtWidgets.QPushButton("Apply cal")
-        row4.addWidget(self.apply_cal_btn)
+        self.apply_cal_btn = QtWidgets.QPushButton("Apply")
+        cal_layout.addWidget(self.apply_cal_btn, 0, 4)
 
-        row4.addWidget(QtWidgets.QLabel("Tone dBm"))
+        cal_layout.addWidget(QtWidgets.QLabel("Tone dBm"), 1, 0)
         self.tone_dbm_edit = QtWidgets.QLineEdit("-30")
         self.tone_dbm_edit.setFixedWidth(60)
-        row4.addWidget(self.tone_dbm_edit)
+        cal_layout.addWidget(self.tone_dbm_edit, 1, 1)
 
-        self.calibrate_btn = QtWidgets.QPushButton("Calibrate from peak")
-        row4.addWidget(self.calibrate_btn)
+        self.calibrate_btn = QtWidgets.QPushButton("Calibrate")
+        cal_layout.addWidget(self.calibrate_btn, 1, 2, 1, 2)
 
-        row4.addStretch(1)
-
-        row5 = QtWidgets.QHBoxLayout()
-        row5.setSpacing(10)
-        control_layout.addLayout(row5)
-
-        self.marker_info = QtWidgets.QLabel("Markers: --")
-        row5.addWidget(self.marker_info)
-
-        self.marker_peak_btn = QtWidgets.QPushButton("Peak")
-        row5.addWidget(self.marker_peak_btn)
-
-        self.marker_left_btn = QtWidgets.QPushButton("Next left")
-        row5.addWidget(self.marker_left_btn)
-
-        self.marker_right_btn = QtWidgets.QPushButton("Next right")
-        row5.addWidget(self.marker_right_btn)
-
-        self.clear_markers_btn = QtWidgets.QPushButton("Clear markers")
-        row5.addWidget(self.clear_markers_btn)
-
-        row5.addStretch(1)
+        row2.addWidget(cal_box, 2)
 
         self.status = QtWidgets.QLabel("")
         self.status.setStyleSheet("QLabel { padding: 4px; }")
-        control_layout.addWidget(self.status)
+        layout.addWidget(self.status)
 
         self.plotw = pg.GraphicsLayoutWidget()
         layout.addWidget(self.plotw, 1)
@@ -730,13 +782,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.plot = self.plotw.addPlot()
         self.plot.setLabel("bottom", "Frequency", units="Hz")
         self.plot.setLabel("left", "Magnitude", units="dBFS")
-        self.plot.showGrid(x=True, y=True)
+        self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.plot.setMouseEnabled(x=True, y=False)
 
-        self.curve = self.plot.plot()
+        self.curve_live = self.plot.plot(pen=pg.mkPen("w", width=1))
+        self.curve_avg = self.plot.plot(pen=pg.mkPen("c", width=1))
+        self.curve_peak = self.plot.plot(pen=pg.mkPen("y", width=2, style=QtCore.Qt.DashLine))
         self.plot.setClipToView(True)
-        self.curve.setClipToView(True)
-        self.curve.setDownsampling(auto=True, method="peak")
+        self.curve_live.setClipToView(True)
+        self.curve_avg.setClipToView(True)
+        self.curve_peak.setClipToView(True)
 
         self.vline = pg.InfiniteLine(angle=90, movable=False)
         self.plot.addItem(self.vline, ignoreBounds=True)
@@ -784,17 +839,23 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.vbw_mode_cb.currentTextChanged.connect(self.on_vbw_mode)
         self.vbw_edit.editingFinished.connect(self.on_vbw_changed)
         self.detector_cb.currentTextChanged.connect(self.on_detector_changed)
-        self.trace_cb.currentTextChanged.connect(self.on_trace_changed)
-        self.clear_trace_btn.clicked.connect(self.on_clear_trace)
+        self.trace_live_rb.toggled.connect(self.on_trace_mode_changed)
+        self.trace_avg_rb.toggled.connect(self.on_trace_mode_changed)
+        self.trace_peak_rb.toggled.connect(self.on_trace_mode_changed)
+        self.peak_hold_toggle.toggled.connect(self.on_peak_hold_toggled)
+        self.clear_peak_btn.clicked.connect(self.on_clear_peak_hold)
 
         self.avg_edit.editingFinished.connect(self.on_avg_changed)
         self.avg_mode_cb.currentTextChanged.connect(self.on_avg_changed)
 
         self.amp_mode_cb.currentTextChanged.connect(self.on_amp_mode_changed)
         self.auto_ref_cb.toggled.connect(self.on_auto_ref_toggled)
+        self.scale_edit.editingFinished.connect(self.on_scale_changed)
+        self.ref_edit.editingFinished.connect(self.on_ref_changed)
 
         self.dc_remove_cb.toggled.connect(self.on_dc_remove)
         self.dc_blank_edit.editingFinished.connect(self.on_dc_blank_changed)
+        self.update_ms_edit.editingFinished.connect(self.on_update_ms_changed)
 
         self.apply_cal_btn.clicked.connect(self.on_apply_calibration)
         self.calibrate_btn.clicked.connect(self.on_calibrate_peak)
@@ -810,6 +871,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.on_gainmode_changed(self.gainmode_cb.currentText())
         self.on_measurement_mode(self.measurement_cb.isChecked())
         self.on_rbw_mode(self.rbw_mode_cb.currentText())
+        self.on_vbw_mode(self.vbw_mode_cb.currentText())
+        self.on_detector_changed(self.detector_cb.currentText())
+        self.on_update_ms_changed()
+        self.auto_ref_cb.setChecked(self.auto_scale_enabled)
+        self._set_trace_mode(self.cfg.trace_type)
+        if self.cfg.trace_type != "Average":
+            self.peak_hold_toggle.setChecked(self.peak_hold_enabled)
+        self.ref_edit.setText(f"{self.cfg.ref_level_db:.1f}")
+        self.scale_edit.setText(f"{self.cfg.display_range_db / 10.0:.1f}")
+        self._update_range_label()
         self.snap_x_to_span()
 
     def _update_amp_modes(self):
@@ -821,6 +892,33 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.amp_mode_cb.addItem("dBm/Hz")
         if current and current in [self.amp_mode_cb.itemText(i) for i in range(self.amp_mode_cb.count())]:
             self.amp_mode_cb.setCurrentText(current)
+
+    def _load_state(self) -> Dict:
+        if not os.path.exists(STATE_PATH):
+            return {}
+        try:
+            with open(STATE_PATH, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def _save_state(self) -> None:
+        data = {
+            "ref_level_db": self.cfg.ref_level_db,
+            "display_range_db": self.cfg.display_range_db,
+            "rbw_mode": self.cfg.rbw_mode,
+            "rbw_hz": self.cfg.rbw_hz,
+            "vbw_mode": self.cfg.vbw_mode,
+            "vbw_hz": self.cfg.vbw_hz,
+            "window": self.cfg.window,
+            "detector": self.cfg.detector,
+            "trace_mode": self.cfg.trace_type,
+            "update_ms": self.cfg.update_ms,
+            "auto_scale": self.auto_ref_cb.isChecked(),
+            "peak_hold_enabled": self.peak_hold_toggle.isChecked(),
+        }
+        with open(STATE_PATH, "w", encoding="utf-8") as handle:
+            json.dump(data, handle, indent=2)
 
     def _set_cfg(self, **kwargs) -> None:
         # Update shared config with worker lock to avoid race conditions.
@@ -865,6 +963,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 self.sdr.set_span_hz(span_hz)
             self._apply_rbw_strategy()
             self.snap_x_to_span()
+            self.max_trace = None
             self.status.setText(f"Span set to {mhz:g} MHz")
         except Exception as exc:
             self.status.setText(f"Span apply failed: {exc}")
@@ -950,15 +1049,34 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def on_detector_changed(self, mode: str):
         self._set_cfg(detector=mode)
 
-    def on_trace_changed(self, mode: str):
-        self._set_cfg(trace_type=mode)
-        # Clear any stored trace state on mode switch.
-        self.on_clear_trace()
+    def _set_trace_mode(self, mode: str) -> None:
+        if mode == "Average":
+            self.trace_avg_rb.setChecked(True)
+        elif mode == "Peak Hold":
+            self.trace_peak_rb.setChecked(True)
+        else:
+            self.trace_live_rb.setChecked(True)
 
-    def on_clear_trace(self):
-        self.max_trace = None
-        self.min_trace = None
-        self.avg_trace = None
+    def on_trace_mode_changed(self):
+        if self.trace_avg_rb.isChecked():
+            mode = "Average"
+        elif self.trace_peak_rb.isChecked():
+            mode = "Peak Hold"
+        else:
+            mode = "Live"
+        self._set_cfg(trace_type=mode)
+        # Clear incompatible state when switching modes.
+        if mode != "Average":
+            self.avg_trace = None
+        if mode != "Peak Hold":
+            self.max_trace = None
+        if mode == "Average":
+            self.peak_hold_toggle.setChecked(False)
+            self.peak_hold_toggle.setEnabled(False)
+        else:
+            self.peak_hold_toggle.setEnabled(True)
+            if mode == "Peak Hold":
+                self.peak_hold_toggle.setChecked(True)
 
     def on_avg_changed(self):
         try:
@@ -975,7 +1093,51 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.plot.setLabel("left", "Magnitude", units=mode)
 
     def on_auto_ref_toggled(self, checked: bool):
-        self.auto_ref_cb.setChecked(checked)
+        self.auto_scale_enabled = checked
+        self.ref_edit.setEnabled(not checked)
+        if not checked:
+            try:
+                self.cfg.ref_level_db = float(self.ref_edit.text().strip())
+            except ValueError:
+                pass
+
+    def on_scale_changed(self):
+        try:
+            scale = float(self.scale_edit.text().strip())
+        except ValueError:
+            scale = self.cfg.display_range_db / 10.0
+        if scale <= 0:
+            scale = 10.0
+        self.cfg.display_range_db = scale * 10.0
+        self._update_range_label()
+
+    def on_ref_changed(self):
+        try:
+            self.cfg.ref_level_db = float(self.ref_edit.text().strip())
+        except ValueError:
+            pass
+
+    def _update_range_label(self):
+        self.range_label.setText(f"Range: {self.cfg.display_range_db:.0f} dB")
+
+    def on_peak_hold_toggled(self, checked: bool):
+        self.peak_hold_enabled = checked
+        if not checked:
+            self.curve_peak.hide()
+        else:
+            self.curve_peak.show()
+
+    def on_clear_peak_hold(self):
+        self.max_trace = None
+
+    def on_update_ms_changed(self):
+        try:
+            update_ms = int(float(self.update_ms_edit.text().strip()))
+        except ValueError:
+            update_ms = self.cfg.update_ms
+        update_ms = max(50, min(2000, update_ms))
+        self.update_ms_edit.setText(str(update_ms))
+        self._set_cfg(update_ms=update_ms)
 
     def on_dc_remove(self, checked: bool):
         self._set_cfg(dc_remove=checked)
@@ -1033,7 +1195,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.marker2 = None
         self.marker1_line.hide()
         self.marker2_line.hide()
-        self.marker_info.setText("Markers: --")
+        self.marker_info.setText("M1: --\nM2: --\nΔ : --")
 
     def _move_marker_peak(self, direction: int):
         if self.latest_display is None:
@@ -1096,6 +1258,55 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.cfg.rbw_hz = self.proc.rbw_hz(fs)
         self.rbw_edit.setText(f"{self.cfg.rbw_hz:.0f}")
         self.status.setText(f"RBW updated: {self.cfg.rbw_hz:.0f} Hz")
+        if self.max_trace is not None:
+            self.max_trace = None
+            self.status.setText("RBW changed: Peak Hold cleared")
+
+    def _update_ref_level(self, display: np.ndarray) -> None:
+        if not self.auto_scale_enabled:
+            return
+        now = time.monotonic()
+        peak = float(np.max(display))
+        target = peak + 5.0
+        ref_level = self.cfg.ref_level_db
+
+        if abs(target - ref_level) < self.auto_ref_hysteresis_db:
+            return
+
+        dt = max(1e-3, now - self.last_auto_ref_update) if self.last_auto_ref_update else 0.1
+        self.last_auto_ref_update = now
+        alpha = 1.0 - math.exp(-dt / self.auto_ref_tau_s)
+        ref_level = ref_level + (target - ref_level) * alpha
+        self.cfg.ref_level_db = ref_level
+        self.ref_edit.setText(f"{ref_level:.1f}")
+
+    def _nice_step(self, span: float) -> float:
+        base = span / 10.0
+        exp = math.floor(math.log10(base)) if base > 0 else 0
+        magnitude = 10 ** exp
+        frac = base / magnitude if magnitude != 0 else base
+        if frac <= 1:
+            nice = 1
+        elif frac <= 2:
+            nice = 2
+        elif frac <= 5:
+            nice = 5
+        else:
+            nice = 10
+        return nice * magnitude
+
+    def _update_axis_ticks(self, freqs: np.ndarray) -> None:
+        if len(freqs) < 2:
+            return
+        span = float(freqs[-1] - freqs[0])
+        major = self._nice_step(span)
+        minor = major / 5.0
+        axis_x = self.plot.getAxis("bottom")
+        axis_x.setTickSpacing(major=major, minor=minor)
+
+        scale_div = max(1.0, self.cfg.display_range_db / 10.0)
+        axis_y = self.plot.getAxis("left")
+        axis_y.setTickSpacing(major=scale_div, minor=scale_div / 2.0)
 
     def on_mouse_moved(self, evt):
         pos = evt[0]
@@ -1139,18 +1350,29 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.marker2 = idx
         self._update_markers()
 
+    def _format_freq(self, freq_hz: float) -> str:
+        if freq_hz >= 1e9:
+            return f"{freq_hz/1e9:.6f} GHz"
+        if freq_hz >= 1e6:
+            return f"{freq_hz/1e6:.6f} MHz"
+        if freq_hz >= 1e3:
+            return f"{freq_hz/1e3:.3f} kHz"
+        return f"{freq_hz:.0f} Hz"
+
+    def _format_amp(self, value: float) -> str:
+        return f"{value:.2f} {self.amp_mode_cb.currentText()}"
+
     def _update_markers(self):
         if self.latest_freqs is None or self.latest_display is None:
             return
-        amp_unit = self.amp_mode_cb.currentText()
-        info = []
+        info = {"M1": "--", "M2": "--", "Δ": "--"}
 
         if self.marker1 is not None:
             f1 = self.latest_freqs[self.marker1]
             a1 = self.latest_display[self.marker1]
             self.marker1_line.setPos(f1)
             self.marker1_line.show()
-            info.append(f"M1 {f1/1e6:.6f} MHz {a1:.2f} {amp_unit}")
+            info["M1"] = f"{self._format_freq(f1):<14} {self._format_amp(a1)}"
         else:
             self.marker1_line.hide()
 
@@ -1159,7 +1381,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             a2 = self.latest_display[self.marker2]
             self.marker2_line.setPos(f2)
             self.marker2_line.show()
-            info.append(f"M2 {f2/1e6:.6f} MHz {a2:.2f} {amp_unit}")
+            info["M2"] = f"{self._format_freq(f2):<14} {self._format_amp(a2)}"
         else:
             self.marker2_line.hide()
 
@@ -1167,16 +1389,20 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             # Delta marker readout and channel power between markers.
             df = abs(self.latest_freqs[self.marker2] - self.latest_freqs[self.marker1])
             da = self.latest_display[self.marker2] - self.latest_display[self.marker1]
-            info.append(f"Δ {df/1e6:.6f} MHz {da:.2f} {amp_unit}")
+            info["Δ"] = f"{self._format_freq(df):<14} {da:.2f} {self.amp_mode_cb.currentText()}"
 
             band_power = self._channel_power(self.marker1, self.marker2)
             if band_power is not None:
-                info.append(f"Ch Pwr {band_power:.2f} {amp_unit}")
+                info["Ch"] = f"Ch: {band_power:.2f} {self.amp_mode_cb.currentText()}"
 
-        if info:
-            self.marker_info.setText(" | ".join(info))
-        else:
-            self.marker_info.setText("Markers: --")
+        lines = [
+            f"M1: {info.get('M1', '--')}",
+            f"M2: {info.get('M2', '--')}",
+            f"Δ : {info.get('Δ', '--')}",
+        ]
+        if "Ch" in info:
+            lines.append(info["Ch"])
+        self.marker_info.setText("\n".join(lines))
 
     def _channel_power(self, idx1: int, idx2: int) -> Optional[float]:
         if self.latest_power is None:
@@ -1233,74 +1459,87 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.vbw_state = alpha * self.vbw_state + (1.0 - alpha) * power
         return self.vbw_state
 
-    def _apply_trace_type(self, power: np.ndarray) -> np.ndarray:
-        trace = self.trace_cb.currentText()
-        if trace == "Clear":
-            return power
-        if trace == "Max Hold":
-            # Peak hold across updates (linear power).
-            if self.max_trace is None:
-                self.max_trace = power.copy()
-            else:
-                self.max_trace = np.maximum(self.max_trace, power)
-            return self.max_trace
-        if trace == "Min Hold":
-            # Min hold across updates (linear power).
-            if self.min_trace is None:
-                self.min_trace = power.copy()
-            else:
-                self.min_trace = np.minimum(self.min_trace, power)
-            return self.min_trace
-        if trace == "Average":
-            # Running average (RMS or log-average).
-            count = max(1, self.cfg.avg_count)
-            if self.avg_trace is None:
-                self.avg_trace = power.copy()
-            else:
-                if self.cfg.avg_mode == "Log":
-                    avg_db = self.power_to_dbfs(self.avg_trace)
-                    curr_db = self.power_to_dbfs(power)
-                    avg_db = avg_db + (curr_db - avg_db) / float(count)
-                    self.avg_trace = np.power(10.0, avg_db / 10.0)
-                else:
-                    self.avg_trace = self.avg_trace + (power - self.avg_trace) / float(count)
-            return self.avg_trace
-        return power
-
     def on_new_data(self, payload: Dict):
+        # Store latest payload for the UI refresh timer.
+        self.latest_payload = payload
+
+    def _apply_average(self, power: np.ndarray) -> np.ndarray:
+        count = max(1, self.cfg.avg_count)
+        if self.avg_trace is None:
+            self.avg_trace = power.copy()
+        else:
+            if self.cfg.avg_mode == "Log":
+                avg_db = self.power_to_dbfs(self.avg_trace)
+                curr_db = self.power_to_dbfs(power)
+                avg_db = avg_db + (curr_db - avg_db) / float(count)
+                self.avg_trace = np.power(10.0, avg_db / 10.0)
+            else:
+                self.avg_trace = self.avg_trace + (power - self.avg_trace) / float(count)
+        return self.avg_trace
+
+    def refresh_display(self):
+        if self.latest_payload is None:
+            return
+        payload = self.latest_payload
         power = payload["power"]
         rbw = payload["rbw"]
         timestamp = payload["timestamp"]
+        freqs = payload["freqs"]
 
-        # Apply VBW and trace type before amplitude conversion.
+        # Apply VBW smoothing in linear power.
         power = self._apply_vbw(power, rbw, timestamp)
-        power = self._apply_trace_type(power)
+        live_display = self._power_to_display(power, rbw_hz=rbw)
 
-        display = self._power_to_display(power, rbw_hz=rbw)
+        if self.peak_hold_enabled:
+            if self.max_trace is None or len(self.max_trace) != len(power):
+                self.max_trace = power.copy()
+            else:
+                self.max_trace = np.maximum(self.max_trace, power)
+            peak_display = self._power_to_display(self.max_trace, rbw_hz=rbw)
+        else:
+            peak_display = None
+
+        if self.cfg.trace_type == "Average":
+            avg_power = self._apply_average(power)
+            avg_display = self._power_to_display(avg_power, rbw_hz=rbw)
+            self.curve_avg.setData(freqs, avg_display)
+            self.curve_avg.show()
+            self.curve_live.hide()
+            self.curve_peak.hide()
+            display = avg_display
+        elif self.cfg.trace_type == "Peak Hold":
+            self.curve_live.setData(freqs, live_display)
+            self.curve_live.show()
+            if peak_display is not None:
+                self.curve_peak.setData(freqs, peak_display)
+                self.curve_peak.show()
+                display = peak_display
+            else:
+                self.curve_peak.hide()
+                display = live_display
+            self.curve_avg.hide()
+        else:
+            self.curve_live.setData(freqs, live_display)
+            self.curve_live.show()
+            if peak_display is not None:
+                self.curve_peak.setData(freqs, peak_display)
+                self.curve_peak.show()
+            else:
+                self.curve_peak.hide()
+            self.curve_avg.hide()
+            display = live_display
 
         self.latest_power = power
         self.latest_display = display
-        self.latest_freqs = payload["freqs"]
-
-        self.curve.setData(payload["freqs"], display)
-        self.hover.update_axis(payload["freqs"], display)
+        self.latest_freqs = freqs
+        self.hover.update_axis(freqs, display)
         self._update_markers()
 
-        if self.auto_ref_cb.isChecked():
-            # Auto reference level tracks the latest peak.
-            ref_level = float(np.max(display)) + 5.0
-            self.ref_edit.setText(f"{ref_level:.1f}")
-        else:
-            try:
-                ref_level = float(self.ref_edit.text().strip())
-            except ValueError:
-                ref_level = self.cfg.ref_level_db
+        self._update_ref_level(display)
+        self._update_axis_ticks(freqs)
 
-        try:
-            display_range = float(self.range_edit.text().strip())
-        except ValueError:
-            display_range = self.cfg.display_range_db
-
+        ref_level = self.cfg.ref_level_db
+        display_range = self.cfg.display_range_db
         self.plot.setYRange(ref_level - display_range, ref_level, padding=0.0)
 
         # Update status readout with current instrument state.
