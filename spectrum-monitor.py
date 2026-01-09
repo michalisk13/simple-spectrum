@@ -1098,6 +1098,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         spectrogram_layout.addWidget(self.spectrogram_min_edit, 5, 1)
         spectrogram_layout.addWidget(QtWidgets.QLabel("dB max"), 5, 2)
         spectrogram_layout.addWidget(self.spectrogram_max_edit, 5, 3)
+        self.spectrogram_auto_range_cb = QtWidgets.QCheckBox("Auto Range (±2σ)")
+        self.spectrogram_auto_range_cb.setChecked(True)
+        spectrogram_layout.addWidget(self.spectrogram_auto_range_cb, 6, 0, 1, 4)
 
         self.control_toolbox.addItem(spectrogram_widget, "Spectrogram")
 
@@ -1139,7 +1142,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         # Main plot + optional spectrogram waterfall below.
         self.plotw = pg.GraphicsLayoutWidget()
-        plot_layout.addWidget(self.plotw, 1)
         plot_layout.addWidget(self.status)
 
         self.plot = self.plotw.addPlot(viewBox=SpectrumViewBox(self))
@@ -1149,16 +1151,31 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.plot.setMouseEnabled(x=True, y=False)
 
         self.spectrogram_plot = self.plotw.addPlot(row=1, col=0)
+        # Make time scroll upward visually like a classic waterfall.
+        self.spectrogram_plot.invertY(True)
+        self.spectrogram_plot.setLabel("left", "Time", units="s")
         self.spectrogram_plot.setLabel("bottom", "Frequency", units="Hz")
-        self.spectrogram_plot.setLabel("left", "Time (s ago)", units="s")
         self.spectrogram_plot.showGrid(x=True, y=False, alpha=0.2)
         self.spectrogram_plot.setMouseEnabled(x=False, y=False)
         self.spectrogram_plot.setXLink(self.plot)
         self.spectrogram_image = pg.ImageItem()
         self.spectrogram_plot.addItem(self.spectrogram_image)
+        # Right side histogram + LUT control for spectrogram (PySDR style).
+        self.spectro_lut = pg.HistogramLUTWidget()
+        self.spectro_lut.setImageItem(self.spectrogram_image)
+        try:
+            self.spectro_lut.item.gradient.loadPreset("viridis")
+        except Exception:
+            pass
+        self.spectro_lut.setMaximumWidth(120)
+        plot_row = QtWidgets.QHBoxLayout()
+        plot_row.addWidget(self.plotw, 1)
+        plot_row.addWidget(self.spectro_lut, 0)
+        plot_layout.insertLayout(0, plot_row, 1)
         self._update_spectrogram_colormap()
         if not self.spectrogram_enabled:
             self.spectrogram_plot.hide()
+            self.spectro_lut.hide()
         self.plotw.ci.layout.setRowStretchFactor(0, 3)
         self.plotw.ci.layout.setRowStretchFactor(1, 1)
 
@@ -2640,8 +2657,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def _apply_spectrogram_visibility(self) -> None:
         if self.spectrogram_enabled:
             self.spectrogram_plot.show()
+            self.spectro_lut.show()
         else:
             self.spectrogram_plot.hide()
+            self.spectro_lut.hide()
         # Disable/enable controls to match visibility.
         for widget in (
             self.spectrogram_mode_cb,
@@ -2651,6 +2670,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_cmap_cb,
             self.spectrogram_min_edit,
             self.spectrogram_max_edit,
+            self.spectrogram_auto_range_cb,
         ):
             widget.setEnabled(self.spectrogram_enabled)
         if not self.spectrogram_enabled:
@@ -2665,60 +2685,41 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if timestamp - self.spectrogram_last_ts < 1.0 / float(self.spectrogram_rate):
             return
         # Use decimated trace for performance and roll a fixed-size buffer.
-        actual_dt = timestamp - self.spectrogram_last_ts if self.spectrogram_last_ts else 0.0
         self.spectrogram_last_ts = timestamp
-        dec_freqs, dec_spec = self._decimate_for_display(freqs, spec_db)
+        dec_freqs, dec_display = self._decimate_for_display(freqs, spec_db)
 
         rows = int(self.spectrogram_rows)
-        cols = len(dec_spec)
+        cols = len(dec_display)
         if cols == 0 or rows <= 0:
             return
         if self.spectrogram_buffer is None or self.spectrogram_buffer.shape != (rows, cols):
             self.spectrogram_buffer = np.full((rows, cols), self.spectrogram_min_db, dtype=np.float32)
-            self.spectrogram_floor_db = None
         self.spectrogram_buffer = np.roll(self.spectrogram_buffer, -1, axis=0)
-        self.spectrogram_buffer[-1, :] = dec_spec.astype(np.float32)
+        self.spectrogram_buffer[-1, :] = dec_display.astype(np.float32)
 
-        if self.spectrogram_scale_mode == "Manual (Expert)":
-            levels = (self.spectrogram_min_db, self.spectrogram_max_db)
+        # Display with newest at the bottom, history above it.
+        img = np.flipud(self.spectrogram_buffer)
+        self.spectrogram_image.setImage(img, autoLevels=False)
+
+        if hasattr(self, "spectrogram_auto_range_cb") and self.spectrogram_auto_range_cb.isChecked():
+            sigma = float(np.std(img))
+            mean = float(np.mean(img))
+            self.spectrogram_image.setLevels((mean - 2.0 * sigma, mean + 2.0 * sigma))
         else:
-            if self.spectrogram_buffer.size:
-                low, high = np.percentile(self.spectrogram_buffer, [5, 95])
-            else:
-                low, high = self.spectrogram_min_db, self.spectrogram_max_db
-            if self.spectrogram_scale_mode == "Fixed floor":
-                if self.spectrogram_floor_db is None:
-                    self.spectrogram_floor_db = float(low)
-                low = self.spectrogram_floor_db
-            levels = (float(low), float(high))
-        if levels[1] <= levels[0]:
-            levels = (levels[0] - 1.0, levels[0] + 1.0)
+            # Keep your manual min max fields as the default levels.
+            self.spectrogram_image.setLevels((self.spectrogram_min_db, self.spectrogram_max_db))
 
-        if actual_dt > 0.0:
-            target_dt = 1.0 / float(self.spectrogram_rate)
-            if actual_dt > target_dt * 1.5:
-                new_rate = max(5.0, self.spectrogram_rate * 0.8)
-                adjusted = self._set_combo_to_nearest(self.spectrogram_speed_cb, new_rate)
-                if adjusted != self.spectrogram_rate:
-                    self.spectrogram_rate = adjusted
-                    self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
-                    self.spectrogram_buffer = None
-                    self.spectrogram_perf_label.setVisible(True)
-                    return
-                self.spectrogram_perf_label.setVisible(True)
-
-        self.spectrogram_image.setImage(self.spectrogram_buffer, autoLevels=False)
-        self.spectrogram_image.setLevels(levels)
+        # Use a clean positive time axis in seconds (0 .. time_span).
+        time_span = float(rows) / float(self.spectrogram_rate)
         if len(dec_freqs) >= 2:
-            time_span = rows / max(self.spectrogram_rate, 1e-3)
             rect = QtCore.QRectF(
-                dec_freqs[0],
-                -time_span,
-                dec_freqs[-1] - dec_freqs[0],
+                float(dec_freqs[0]),
+                0.0,
+                float(dec_freqs[-1] - dec_freqs[0]),
                 time_span,
             )
             self.spectrogram_image.setRect(rect)
-            self.spectrogram_plot.setXRange(dec_freqs[0], dec_freqs[-1], padding=0.0)
+            self.spectrogram_plot.setXRange(float(dec_freqs[0]), float(dec_freqs[-1]), padding=0.0)
 
     def on_new_data(self, payload: Dict):
         # Store latest payload for the UI refresh timer.
