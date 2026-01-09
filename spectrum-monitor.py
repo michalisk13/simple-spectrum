@@ -1159,8 +1159,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._update_spectrogram_colormap()
         if not self.spectrogram_enabled:
             self.spectrogram_plot.hide()
-        self.plotw.ci.setRowStretchFactor(0, 3)
-        self.plotw.ci.setRowStretchFactor(1, 1)
+        self.plotw.ci.layout.setRowStretchFactor(0, 3)
+        self.plotw.ci.layout.setRowStretchFactor(1, 1)
 
         self.curve_trace1 = self.plot.plot(pen=pg.mkPen("w", width=1))
         self.curve_trace2 = self.plot.plot(pen=pg.mkPen("y", width=2, style=QtCore.Qt.DashLine))
