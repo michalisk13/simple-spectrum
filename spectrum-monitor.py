@@ -2506,7 +2506,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def on_mouse_moved(self, evt):
         pos = evt[0]
-        vb = self.plot.vb
+        vb = self.plot.getViewBox()
 
         if not vb.sceneBoundingRect().contains(pos):
             self.hover_text.setText("")
@@ -2536,7 +2536,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         mouse_event = evt[0]
         if mouse_event.button() not in (QtCore.Qt.LeftButton, QtCore.Qt.RightButton):
             return
-        vb = self.plot.vb
+        vb = self.plot.getViewBox()
         mouse_point = vb.mapSceneToView(mouse_event.scenePos())
         fx = float(mouse_point.x())
         idx = int(np.argmin(np.abs(self.latest_freqs - fx)))
