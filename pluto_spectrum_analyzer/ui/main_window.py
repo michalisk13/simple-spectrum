@@ -127,8 +127,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         # Restore persisted analyzer settings for an instrument-like feel.
         self.cfg.uri = self.state.get("uri", self.cfg.uri)
         self.cfg.center_hz = int(self.state.get("center_hz", self.cfg.center_hz))
-        self.cfg.sample_rate_hz = int(self.state.get("span_hz", self.cfg.sample_rate_hz))
-        self.cfg.rf_bw_hz = int(self.state.get("rf_bw_hz", self.cfg.rf_bw_hz))
+        self.cfg.sample_rate_hz = max(
+            1, int(self.state.get("span_hz", self.cfg.sample_rate_hz))
+        )
+        self.cfg.rf_bw_hz = max(1, int(self.state.get("rf_bw_hz", self.cfg.rf_bw_hz)))
+        if self.cfg.rf_bw_hz > self.cfg.sample_rate_hz:
+            self.cfg.rf_bw_hz = self.cfg.sample_rate_hz
         self.cfg.gain_mode = self.state.get("gain_mode", self.cfg.gain_mode)
         self.cfg.gain_db = int(self.state.get("gain_db", self.cfg.gain_db))
         self.cfg.measurement_mode = bool(self.state.get("measurement_mode", self.cfg.measurement_mode))
@@ -143,9 +147,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.cfg.avg_count = int(self.state.get("avg_count", self.cfg.avg_count))
         self.cfg.avg_mode = self.state.get("avg_mode", self.cfg.avg_mode)
         self.cfg.overlap = float(self.state.get("overlap", self.cfg.overlap))
-        self.cfg.buffer_factor = int(self.state.get("buffer_factor", self.cfg.buffer_factor))
-        self.cfg.fft_size = int(self.state.get("fft_size", self.cfg.fft_size))
-        self.cfg.update_ms = int(self.state.get("update_ms", self.cfg.update_ms))
+        self.cfg.overlap = min(max(self.cfg.overlap, 0.0), 0.95)
+        self.cfg.buffer_factor = max(
+            1, int(self.state.get("buffer_factor", self.cfg.buffer_factor))
+        )
+        self.cfg.fft_size = max(256, int(self.state.get("fft_size", self.cfg.fft_size)))
+        self.cfg.update_ms = max(1, int(self.state.get("update_ms", self.cfg.update_ms)))
         self.cfg.ref_level_db = float(self.state.get("ref_level_db", self.cfg.ref_level_db))
         self.cfg.display_range_db = float(self.state.get("display_range_db", self.cfg.display_range_db))
         self.auto_scale_enabled = bool(self.state.get("auto_scale", True))
@@ -808,7 +815,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         # File actions for export/exit.
         file_menu = menu.addMenu("File")
+        self.connect_sdr_action = QtWidgets.QAction("Connect SDR", self)
         self.sdr_settings_action = QtWidgets.QAction("SDR Settings...", self)
+        file_menu.addAction(self.connect_sdr_action)
         file_menu.addAction(self.sdr_settings_action)
         export_menu = file_menu.addMenu("Export")
         self.export_trace_action = QtWidgets.QAction("Trace CSV", self)
@@ -1202,6 +1211,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.peak_table.cellClicked.connect(self.on_peak_table_clicked)
 
         self.save_screenshot_action.triggered.connect(self.on_save_screenshot)
+        self.connect_sdr_action.triggered.connect(self._restart_sdr)
         self.sdr_settings_action.triggered.connect(self.on_open_sdr_settings)
         self.export_trace_action.triggered.connect(self.on_save_trace_csv)
         self.export_spectrogram_action.triggered.connect(self.on_export_spectrogram)
