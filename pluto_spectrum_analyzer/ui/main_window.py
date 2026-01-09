@@ -1172,9 +1172,19 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.vline.setPen(pg.mkPen("#2A2A2D"))
         self.marker1_line.setPen(pg.mkPen("#1F6AA5"))
         self.marker2_line.setPen(pg.mkPen("#F5A623"))
-        self.hover_text.setColor(pg.mkColor("#E6E6E6"), pg.mkColor(0, 0, 0, 160))
+        hover_text = self.hover_text.toPlainText()
+        self.hover_text.setText(
+            hover_text,
+            color=pg.mkColor("#E6E6E6"),
+            fill=pg.mkBrush(0, 0, 0, 160),
+        )
         self.trace_legend_item.setColor(pg.mkColor("#C8C8C8"))
-        self.disconnected_overlay.setColor(pg.mkColor("#B0B0B0"), pg.mkColor(0, 0, 0, 140))
+        disconnected_text = self.disconnected_overlay.toPlainText()
+        self.disconnected_overlay.setText(
+            disconnected_text,
+            color=pg.mkColor("#B0B0B0"),
+            fill=pg.mkBrush(0, 0, 0, 140),
+        )
 
     def _set_button_role(self, button: QtWidgets.QPushButton, role: str) -> None:
         button.setProperty("primary", role == "primary")
