@@ -6,6 +6,7 @@ must not implement DSP algorithms or direct SDR I/O beyond delegating to helpers
 
 import math
 import os
+import threading
 import time
 from typing import Dict, Optional, Tuple
 
@@ -167,6 +168,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.sdr = NullSdr(cfg)
             self._pending_sdr_warning = str(exc)
         self.sdr_connected = not isinstance(self.sdr, NullSdr)
+        self._probe_in_flight = False
         self._reconnect_timer = QtCore.QTimer()
         self._reconnect_timer.setInterval(3000)
         self._reconnect_timer.timeout.connect(self._attempt_reconnect)
@@ -1106,8 +1108,21 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             if self._reconnect_timer.isActive():
                 self._reconnect_timer.stop()
             return
-        ok, _ = test_pluto_connection(self.cfg.uri)
+        if self._probe_in_flight:
+            return
+        self._probe_in_flight = True
+        thread = threading.Thread(target=self._probe_sdr_connection, daemon=True)
+        thread.start()
+
+    def _probe_sdr_connection(self) -> None:
+        ok, err = test_pluto_connection(self.cfg.uri)
+        QtCore.QTimer.singleShot(0, lambda: self._handle_probe_result(ok, err))
+
+    def _handle_probe_result(self, ok: bool, err: Optional[str]) -> None:
+        self._probe_in_flight = False
         if not ok:
+            if self._disconnected_status_message:
+                self.status.setText(self._disconnected_status_message)
             return
         self._restart_sdr()
         if self.sdr_connected:

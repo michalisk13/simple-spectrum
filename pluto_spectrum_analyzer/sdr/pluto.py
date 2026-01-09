@@ -139,7 +139,7 @@ class NullSdr:
         self.cfg.center_hz = hz
 
     def set_span_hz(self, span_hz: int) -> None:
-        span_hz = int(span_hz)
+        span_hz = max(1, int(span_hz))
         self.cfg.sample_rate_hz = span_hz
         self.cfg.rf_bw_hz = min(int(span_hz), int(self.cfg.rf_bw_hz))
 
@@ -162,12 +162,12 @@ class NullSdr:
         self.cfg.rf_bw_hz = int(hz)
 
     def read_rx(self):
-        n = int(self.cfg.fft_size) * int(self.cfg.buffer_factor)
+        n = max(1, int(self.cfg.fft_size) * int(self.cfg.buffer_factor))
         return np.zeros(n, dtype=np.complex64)
 
     @property
     def sample_rate(self) -> float:
-        return float(self.cfg.sample_rate_hz)
+        return float(max(1, int(self.cfg.sample_rate_hz)))
 
     @property
     def lo(self) -> float:
