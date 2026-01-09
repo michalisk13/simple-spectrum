@@ -1529,6 +1529,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.proc.update_fft_size(self.cfg.fft_size, self.cfg.window)
         self.worker = SpectrumWorker(self.sdr, self.proc, self.cfg)
         self.worker.new_data.connect(self.on_new_data)
+        self.worker.connection_error.connect(self.on_worker_error)
         self.worker.start()
         self._apply_sdr_state()
 
@@ -1559,6 +1560,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def disconnect_sdr(self) -> None:
         if self.worker is not None:
+            self.worker.connection_error.disconnect(self.on_worker_error)
             self.worker.stop()
             self.worker.wait(1000)
             self.worker = None
@@ -1736,8 +1738,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def snap_x_to_span(self):
         # Keep the visible span centered on the LO.
         if self.sdr is not None:
-            lo = float(self.sdr.lo)
-            sr = float(self.sdr.sample_rate)
+            try:
+                lo = float(self.sdr.lo)
+                sr = float(self.sdr.sample_rate)
+            except Exception:
+                self.disconnect_sdr()
+                return
         else:
             lo = float(self.cfg.center_hz)
             sr = float(self.cfg.sample_rate_hz)
@@ -2979,6 +2985,23 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def on_new_data(self, payload: Dict):
         # Store latest payload for the UI refresh timer.
         self.latest_payload = payload
+
+    def on_worker_error(self, message: str) -> None:
+        if not self._is_connected():
+            return
+        self.disconnect_sdr()
+        self.status_message.setText("SDR disconnected unexpectedly")
+        QtWidgets.QMessageBox.warning(
+            self,
+            "SDR Connection",
+            "\n".join(
+                [
+                    "SDR connection lost.",
+                    f"Error: {message}",
+                    "The application will stay open in disconnected mode.",
+                ]
+            ),
+        )
 
     def _apply_average(self, power: np.ndarray) -> np.ndarray:
         count = max(1, self.cfg.avg_count)
