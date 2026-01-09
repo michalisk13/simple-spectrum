@@ -824,7 +824,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         rf_widget = QtWidgets.QWidget()
         rf_layout = QtWidgets.QGridLayout(rf_widget)
-        rf_layout.setHorizontalSpacing(6)
+        rf_layout.setHorizontalSpacing(4)
         rf_layout.setVerticalSpacing(4)
 
         rf_layout.addWidget(QtWidgets.QLabel("Center"), 0, 0)
@@ -832,6 +832,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.freq_edit.setFixedWidth(90)
         self.freq_edit.setAlignment(QtCore.Qt.AlignRight)
         rf_layout.addWidget(self.freq_edit, 0, 1)
+        center_btn_size = self.freq_edit.sizeHint().height()
 
         self.center_minus_btn = QtWidgets.QToolButton()
         self.center_minus_btn.setText("−")
@@ -839,7 +840,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.center_minus_btn.setAutoRepeatDelay(300)
         self.center_minus_btn.setAutoRepeatInterval(60)
         self.center_minus_btn.setAutoRaise(True)
-        self.center_minus_btn.setFixedSize(16, 16)
+        self.center_minus_btn.setFixedSize(center_btn_size, center_btn_size)
 
         self.center_plus_btn = QtWidgets.QToolButton()
         self.center_plus_btn.setText("+")
@@ -847,12 +848,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.center_plus_btn.setAutoRepeatDelay(300)
         self.center_plus_btn.setAutoRepeatInterval(60)
         self.center_plus_btn.setAutoRaise(True)
-        self.center_plus_btn.setFixedSize(16, 16)
+        self.center_plus_btn.setFixedSize(center_btn_size, center_btn_size)
 
         center_btns = QtWidgets.QWidget()
         center_btns_layout = QtWidgets.QHBoxLayout(center_btns)
-        center_btns_layout.setContentsMargins(2, 0, 2, 0)
-        center_btns_layout.setSpacing(4)
+        center_btns_layout.setContentsMargins(0, 0, 0, 0)
+        center_btns_layout.setSpacing(2)
         center_btns_layout.addWidget(self.center_minus_btn)
         center_btns_layout.addWidget(self.center_plus_btn)
         rf_layout.addWidget(center_btns, 0, 2)
@@ -878,7 +879,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.span_minus_btn.setAutoRepeatDelay(300)
         self.span_minus_btn.setAutoRepeatInterval(80)
         self.span_minus_btn.setAutoRaise(True)
-        self.span_minus_btn.setFixedSize(16, 16)
+        self.span_minus_btn.setFixedSize(center_btn_size, center_btn_size)
 
         self.span_plus_btn = QtWidgets.QToolButton()
         self.span_plus_btn.setText("+")
@@ -886,12 +887,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.span_plus_btn.setAutoRepeatDelay(300)
         self.span_plus_btn.setAutoRepeatInterval(80)
         self.span_plus_btn.setAutoRaise(True)
-        self.span_plus_btn.setFixedSize(16, 16)
+        self.span_plus_btn.setFixedSize(center_btn_size, center_btn_size)
 
         span_btns = QtWidgets.QWidget()
         span_btns_layout = QtWidgets.QHBoxLayout(span_btns)
-        span_btns_layout.setContentsMargins(2, 0, 2, 0)
-        span_btns_layout.setSpacing(4)
+        span_btns_layout.setContentsMargins(0, 0, 0, 0)
+        span_btns_layout.setSpacing(2)
         span_btns_layout.addWidget(self.span_minus_btn)
         span_btns_layout.addWidget(self.span_plus_btn)
         rf_layout.addWidget(span_btns, 1, 2)
@@ -917,7 +918,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.rfbw_minus_btn.setAutoRepeatDelay(300)
         self.rfbw_minus_btn.setAutoRepeatInterval(80)
         self.rfbw_minus_btn.setAutoRaise(True)
-        self.rfbw_minus_btn.setFixedSize(16, 16)
+        self.rfbw_minus_btn.setFixedSize(center_btn_size, center_btn_size)
 
         self.rfbw_plus_btn = QtWidgets.QToolButton()
         self.rfbw_plus_btn.setText("+")
@@ -925,12 +926,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.rfbw_plus_btn.setAutoRepeatDelay(300)
         self.rfbw_plus_btn.setAutoRepeatInterval(80)
         self.rfbw_plus_btn.setAutoRaise(True)
-        self.rfbw_plus_btn.setFixedSize(16, 16)
+        self.rfbw_plus_btn.setFixedSize(center_btn_size, center_btn_size)
 
         rfbw_btns = QtWidgets.QWidget()
         rfbw_btns_layout = QtWidgets.QHBoxLayout(rfbw_btns)
-        rfbw_btns_layout.setContentsMargins(2, 0, 2, 0)
-        rfbw_btns_layout.setSpacing(4)
+        rfbw_btns_layout.setContentsMargins(0, 0, 0, 0)
+        rfbw_btns_layout.setSpacing(2)
         rfbw_btns_layout.addWidget(self.rfbw_minus_btn)
         rfbw_btns_layout.addWidget(self.rfbw_plus_btn)
         rf_layout.addWidget(rfbw_btns, 2, 2)
@@ -960,6 +961,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         self.measurement_cb = QtWidgets.QCheckBox("Measurement mode")
         rf_layout.addWidget(self.measurement_cb, 4, 0, 1, 3)
+        rf_layout.setColumnStretch(1, 1)
+        rf_layout.setColumnStretch(2, 0)
+        rf_layout.setColumnStretch(3, 0)
+        rf_layout.setColumnStretch(4, 0)
 
         self.control_toolbox.addItem(rf_widget, "RF")
 
@@ -1929,20 +1934,54 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         idx = max(0, min(idx, len(values) - 1))
         return int(values[idx])
 
-    def _center_step_hz(self) -> float:
-        bin_width = float(self.cfg.sample_rate_hz) / float(self.cfg.fft_size)
-        step = max(1.0, bin_width)
-        mods = QtWidgets.QApplication.keyboardModifiers()
-        if mods & QtCore.Qt.ShiftModifier:
+    def _center_step_hz(self, modifiers: Optional[QtCore.Qt.KeyboardModifiers] = None) -> float:
+        span_hz = float(self.cfg.sample_rate_hz)
+        step = span_hz / 100.0
+        if modifiers is None:
+            modifiers = QtWidgets.QApplication.keyboardModifiers()
+        if modifiers & QtCore.Qt.ShiftModifier:
             step *= 10.0
-        if mods & QtCore.Qt.ControlModifier:
+        if modifiers & QtCore.Qt.ControlModifier:
             step *= 0.1
+        step = max(1_000.0, min(step, 10_000_000.0))
         return step
+
+    def _center_display_decimals(self, unit: str) -> int:
+        inv = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[unit]
+        step_unit = self._center_step_hz(QtCore.Qt.NoModifier) / inv
+        if step_unit <= 0.0:
+            return 0
+        if step_unit >= 1.0:
+            return 0
+        decimals = int(math.ceil(-math.log10(step_unit)))
+        return max(0, min(decimals, 9))
+
+    def _format_center_value(self, hz: int, unit: str) -> str:
+        inv = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[unit]
+        decimals = self._center_display_decimals(unit)
+        return f"{hz / inv:.{decimals}f}"
+
+    def _format_center_delta(self, delta_hz: float) -> Tuple[str, str]:
+        delta = float(delta_hz)
+        abs_delta = abs(delta)
+        if abs_delta >= 1e6:
+            value = abs_delta / 1e6
+            unit = "MHz"
+            decimals = 3
+        elif abs_delta >= 1e3:
+            value = abs_delta / 1e3
+            unit = "kHz"
+            decimals = 3
+        else:
+            value = abs_delta
+            unit = "Hz"
+            decimals = 0
+        sign = "+" if delta >= 0 else "−"
+        return f"{sign}{value:.{decimals}f}", unit
 
     def _sync_center_edit(self):
         unit = self.freq_unit.currentText()
-        inv = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[unit]
-        self.freq_edit.setText(f"{self.cfg.center_hz / inv:.6g}")
+        self.freq_edit.setText(self._format_center_value(self.cfg.center_hz, unit))
 
     def _sync_span_edit(self):
         unit = self.span_unit.currentText()
@@ -1990,7 +2029,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 self.sdr.set_center_hz(hz)
             self._sync_center_edit()
             self.snap_x_to_span()
-            self.status.setText(f"Center set to {self.cfg.center_hz} Hz")
+            delta = self.cfg.center_hz - base
+            unit = self.freq_unit.currentText()
+            center_value = self._format_center_value(self.cfg.center_hz, unit)
+            delta_value, delta_unit = self._format_center_delta(delta)
+            self.status.setText(f"Center: {center_value} {unit} (Δ{delta_value} {delta_unit})")
         except Exception as exc:
             self.status.setText(f"Center step failed: {exc}")
 
