@@ -2343,7 +2343,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.last_update_ts = timestamp
         # VBW smoothing as EMA in linear power domain.
         alpha = math.exp(-dt * 2.0 * math.pi * vbw)
-        if self.vbw_state is None:
+        if self.vbw_state is None or self.vbw_state.shape != power.shape:
+            # Reset VBW state if FFT size changed (shape mismatch).
             self.vbw_state = power.copy()
         else:
             self.vbw_state = alpha * self.vbw_state + (1.0 - alpha) * power
