@@ -2,7 +2,7 @@ QMainWindow,
 QWidget {
   background-color: #1E1E1E;
   color: #E6E6E6;
-  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-family: "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   font-size: 12px;
 }
 
@@ -18,9 +18,8 @@ QWidget:disabled {
 }
 
 QFrame#brandCard {
-  background-color: #2D2D30;
-  border: 1px solid #3A3A3D;
-  border-radius: 10px;
+  background-color: transparent;
+  border: none;
 }
 
 QWidget#navContents {
@@ -34,13 +33,13 @@ QFrame#navSection {
 }
 
 QLabel#brandTitle {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #1F6AA5;
 }
 
 QLabel#brandSubtitle {
-  font-size: 11px;
+  font-size: 10px;
   color: #B0B0B0;
 }
 
@@ -53,6 +52,7 @@ QToolButton#navHeader {
   font-size: 13px;
   min-height: 28px;
   border-left: 3px solid transparent;
+  font-weight: 600;
 }
 
 QToolButton#navHeader:hover {
@@ -85,8 +85,7 @@ QLabel#instrumentStatus,
 QLabel#statusMessage,
 QLabel#connectionStatus,
 QLabel#warningStatus {
-  font-family: "JetBrains Mono", "Consolas", "Menlo", monospace;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 QLabel#spectrogramPerfLabel {
@@ -135,7 +134,7 @@ QToolButton#showSettingsButton {
 
 QToolButton#hideSettingsButton:hover,
 QToolButton#showSettingsButton:hover {
-  background-color: #333337;
+  background-color: #2B7FC6;
   border-radius: 6px;
 }
 

@@ -205,6 +205,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         self.recent_uris = self._state_str_list("recent_uris")
         self.setWindowTitle("Pluto Spectrum Analyzer")
+        self.setWindowIcon(self._icon("activity"))
 
         pg.setConfigOptions(antialias=False)
         pg.setConfigOption("background", (15, 15, 16))
@@ -337,13 +338,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         brand_card = QtWidgets.QFrame()
         brand_card.setObjectName("brandCard")
         brand_layout = QtWidgets.QHBoxLayout(brand_card)
-        brand_layout.setContentsMargins(12, 10, 12, 10)
+        brand_layout.setContentsMargins(6, 4, 6, 4)
         brand_icon = QtWidgets.QLabel()
-        brand_icon.setPixmap(
-            self.style()
-            .standardIcon(QtWidgets.QStyle.SP_ComputerIcon)
-            .pixmap(22, 22)
-        )
+        brand_icon.setPixmap(self._icon("activity").pixmap(18, 18))
         brand_text = QtWidgets.QVBoxLayout()
         brand_label = QtWidgets.QLabel("Pluto Spectrum Analyzer")
         brand_label.setObjectName("brandTitle")
@@ -356,11 +353,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         brand_layout.addStretch(1)
         self.hide_settings_btn = QtWidgets.QToolButton()
         self.hide_settings_btn.setObjectName("hideSettingsButton")
-        self.hide_settings_btn.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_ArrowLeft)
-        )
+        self.hide_settings_btn.setIcon(self._icon("layout-sidebar-left-collapse"))
         self.hide_settings_btn.setToolTip("Hide settings")
         self.hide_settings_btn.setAutoRaise(True)
+        self.hide_settings_btn.setIconSize(QtCore.QSize(16, 16))
         brand_layout.addWidget(self.hide_settings_btn)
         control_layout.addWidget(brand_card)
 
@@ -368,7 +364,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._nav_expand_order: list[QtWidgets.QToolButton] = []
         self.nav_dividers: list[QtWidgets.QFrame] = []
         self.nav_container = QtWidgets.QVBoxLayout()
-        self.nav_container.setSpacing(8)
+        self.nav_container.setSpacing(6)
         control_layout.addLayout(self.nav_container)
 
         plot_container = QtWidgets.QWidget()
@@ -377,11 +373,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         plot_layout.setSpacing(6)
         self.show_settings_btn = QtWidgets.QToolButton()
         self.show_settings_btn.setObjectName("showSettingsButton")
-        self.show_settings_btn.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_ArrowRight)
-        )
+        self.show_settings_btn.setIcon(self._icon("layout-sidebar-left-expand"))
         self.show_settings_btn.setToolTip("Show settings")
         self.show_settings_btn.setAutoRaise(True)
+        self.show_settings_btn.setIconSize(QtCore.QSize(16, 16))
         self.show_settings_btn.hide()
         show_settings_bar = QtWidgets.QHBoxLayout()
         show_settings_bar.setContentsMargins(0, 0, 0, 0)
@@ -536,7 +531,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         rf_layout.setColumnStretch(2, 0)
         rf_layout.setColumnStretch(3, 0)
 
-        self._add_nav_section("RF", QtWidgets.QStyle.SP_DriveHDIcon, rf_widget)
+        self._add_nav_section("RF", "antenna", rf_widget)
 
         sweep_widget = QtWidgets.QWidget()
         sweep_layout = QtWidgets.QGridLayout(sweep_widget)
@@ -574,7 +569,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.update_hz_edit.setAlignment(QtCore.Qt.AlignRight)
         sweep_layout.addWidget(self.update_hz_edit, 3, 3)
 
-        self._add_nav_section("Sweep / FFT", QtWidgets.QStyle.SP_BrowserReload, sweep_widget)
+        self._add_nav_section("Sweep / FFT", "wave-sine", sweep_widget)
 
         trace_widget = QtWidgets.QWidget()
         trace_layout = QtWidgets.QGridLayout(trace_widget)
@@ -646,7 +641,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.save_csv_btn = QtWidgets.QPushButton("Save trace CSV")
         trace_layout.addWidget(self.save_csv_btn, 8, 0, 1, 4)
 
-        self._add_nav_section("Traces & Scaling", QtWidgets.QStyle.SP_ComputerIcon, trace_widget)
+        self._add_nav_section("Traces & Scaling", "layers", trace_widget)
 
         markers_widget = QtWidgets.QWidget()
         markers_layout = QtWidgets.QVBoxLayout(markers_widget)
@@ -679,7 +674,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.marker_to_center_btn = QtWidgets.QPushButton("Marker to Center")
         markers_layout.addWidget(self.marker_to_center_btn)
 
-        self._add_nav_section("Markers", QtWidgets.QStyle.SP_ArrowUp, markers_widget)
+        self._add_nav_section("Markers", "target", markers_widget)
 
         presets_widget = QtWidgets.QWidget()
         presets_layout = QtWidgets.QGridLayout(presets_widget)
@@ -698,7 +693,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.measure_detector_cb.addItems(["Peak", "RMS"])
         presets_layout.addWidget(self.measure_detector_cb, 1, 1)
 
-        self._add_nav_section("Presets", QtWidgets.QStyle.SP_DialogApplyButton, presets_widget)
+        self._add_nav_section("Presets", "bookmark", presets_widget)
 
         spectrogram_widget = QtWidgets.QWidget()
         spectrogram_layout = QtWidgets.QGridLayout(spectrogram_widget)
@@ -711,7 +706,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_mode_cb.setCurrentText(self.cfg.spectrogram_mode)
         spectrogram_layout.addWidget(self.spectrogram_mode_cb, 0, 1, 1, 3)
 
-        spectrogram_layout.addWidget(QtWidgets.QLabel("Time Resolution (slices/s)"), 1, 0)
+        spectrogram_rate_label = QtWidgets.QLabel("Time Resolution (slices/s)")
+        spectrogram_rate_label.setWordWrap(True)
+        spectrogram_layout.addWidget(spectrogram_rate_label, 1, 0)
         self.spectrogram_speed_cb = QtWidgets.QComboBox()
         self.spectrogram_speed_cb.addItems(["5", "10", "15", "20", "30"])
         self.spectrogram_speed_cb.setCurrentText(f"{int(self.spectrogram_rate)}")
@@ -721,7 +718,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_perf_label.setVisible(False)
         spectrogram_layout.addWidget(self.spectrogram_perf_label, 1, 2, 1, 2)
 
-        spectrogram_layout.addWidget(QtWidgets.QLabel("Time Span (s)"), 2, 0)
+        spectrogram_span_label = QtWidgets.QLabel("Time Span (s)")
+        spectrogram_span_label.setWordWrap(True)
+        spectrogram_layout.addWidget(spectrogram_span_label, 2, 0)
         self.spectrogram_depth_cb = QtWidgets.QComboBox()
         self.spectrogram_depth_cb.addItems(["5", "10", "15", "20", "30", "60"])
         self.spectrogram_depth_cb.setCurrentText(f"{int(round(self.spectrogram_span_s))}")
@@ -749,11 +748,14 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         spectrogram_layout.addWidget(self.spectrogram_min_edit, 5, 1)
         spectrogram_layout.addWidget(QtWidgets.QLabel("dB max"), 5, 2)
         spectrogram_layout.addWidget(self.spectrogram_max_edit, 5, 3)
-        self.spectrogram_auto_range_cb = QtWidgets.QCheckBox("Auto Range (±2σ)")
+        self.spectrogram_auto_range_cb = QtWidgets.QCheckBox()
         self.spectrogram_auto_range_cb.setChecked(True)
-        spectrogram_layout.addWidget(self.spectrogram_auto_range_cb, 6, 0, 1, 4)
+        spectrogram_auto_label = QtWidgets.QLabel("Auto Range (±2σ)")
+        spectrogram_auto_label.setWordWrap(True)
+        spectrogram_layout.addWidget(spectrogram_auto_label, 6, 0, 1, 2)
+        spectrogram_layout.addWidget(self.spectrogram_auto_range_cb, 6, 2, 1, 2)
 
-        self._add_nav_section("Spectrogram", QtWidgets.QStyle.SP_FileDialogContentsView, spectrogram_widget)
+        self._add_nav_section("Spectrogram", "color-swatch", spectrogram_widget)
 
         advanced_widget = QtWidgets.QWidget()
         advanced_layout = QtWidgets.QGridLayout(advanced_widget)
@@ -785,7 +787,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.calibration_btn = QtWidgets.QPushButton("Calibration...")
         advanced_layout.addWidget(self.calibration_btn, 4, 0, 1, 2)
 
-        self._add_nav_section("Advanced", QtWidgets.QStyle.SP_FileDialogDetailedView, advanced_widget)
+        self._add_nav_section("Advanced", "settings", advanced_widget)
         self._set_default_nav_state()
         control_layout.addStretch(1)
 
@@ -929,18 +931,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.connect_action = QtWidgets.QAction("Connect", self)
         self.disconnect_action = QtWidgets.QAction("Disconnect", self)
         self.reconnect_action = QtWidgets.QAction("Reconnect", self)
-        self.sdr_settings_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogDetailedView)
-        )
-        self.connect_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DialogYesButton)
-        )
-        self.disconnect_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DialogNoButton)
-        )
-        self.reconnect_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_BrowserReload)
-        )
+        self.sdr_settings_action.setIcon(self._icon("settings"))
+        self.connect_action.setIcon(self._icon("plug-connected"))
+        self.disconnect_action.setIcon(self._icon("plug-connected-x"))
+        self.reconnect_action.setIcon(self._icon("refresh"))
         file_menu.addAction(self.sdr_settings_action)
         file_menu.addAction(self.connect_action)
         file_menu.addAction(self.disconnect_action)
@@ -948,19 +942,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         export_menu = file_menu.addMenu("Export")
         self.export_trace_action = QtWidgets.QAction("Trace CSV", self)
         self.export_spectrogram_action = QtWidgets.QAction("Spectrogram Image (PNG)", self)
-        self.export_trace_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DialogSaveButton)
-        )
-        self.export_spectrogram_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DialogSaveButton)
-        )
+        self.export_trace_action.setIcon(self._icon("file-export"))
+        self.export_spectrogram_action.setIcon(self._icon("file-export"))
         export_menu.addAction(self.export_trace_action)
         export_menu.addAction(self.export_spectrogram_action)
         self.export_spectrogram_action.setEnabled(self.spectrogram_enabled)
         self.save_screenshot_action = QtWidgets.QAction("Save screenshot", self)
-        self.save_screenshot_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_DesktopIcon)
-        )
+        self.save_screenshot_action.setIcon(self._icon("camera"))
         self.exit_action = QtWidgets.QAction("Exit", self)
         file_menu.addSeparator()
         file_menu.addAction(self.save_screenshot_action)
@@ -1001,9 +989,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.calibration_action = QtWidgets.QAction("Calibration...", self)
         self.device_info_action = QtWidgets.QAction("Device Info...", self)
         self.reset_state_action = QtWidgets.QAction("Reset state", self)
-        self.calibration_action.setIcon(
-            self.style().standardIcon(QtWidgets.QStyle.SP_FileDialogInfoView)
-        )
+        self.calibration_action.setIcon(self._icon("ruler"))
         tools_menu.addAction(self.calibration_action)
         tools_menu.addAction(self.device_info_action)
         tools_menu.addAction(self.reset_state_action)
@@ -1024,7 +1010,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def _add_nav_section(
         self,
         title: str,
-        icon_style: QtWidgets.QStyle.StandardPixmap,
+        icon_name: str,
         content_widget: QtWidgets.QWidget,
     ) -> None:
         section_frame = QtWidgets.QFrame()
@@ -1039,7 +1025,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         header.setChecked(False)
         header.setArrowType(QtCore.Qt.RightArrow)
         header.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
-        header.setIcon(self.style().standardIcon(icon_style))
+        header.setIcon(self._icon(icon_name))
         header.setProperty("navTitle", title)
         header.installEventFilter(self)
         header.setText(title)
@@ -1151,8 +1137,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         axis_y.setTextPen(pg.mkPen(axis_color))
         axis_x.setPen(pg.mkPen(axis_color))
         axis_x.setTextPen(pg.mkPen(axis_color))
-        self.plot.showGrid(x=True, y=True, alpha=0.25)
-        self.spectrogram_plot.showGrid(x=True, y=False, alpha=0.2)
+        self.plot.showGrid(x=True, y=True, alpha=0.15)
+        self.spectrogram_plot.showGrid(x=True, y=False, alpha=0.15)
         self.spectro_lut.setBackground(pg.mkColor("#252526"))
         self.spectro_lut.item.axis.setPen(pg.mkPen(axis_color))
         self.spectro_lut.item.axis.setTextPen(pg.mkPen(axis_color))
@@ -1199,6 +1185,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             )
         )
 
+    def _icon(self, name: str) -> QtGui.QIcon:
+        icon_path = os.path.join(os.path.dirname(__file__), "assets", "icons", f"{name}.svg")
+        return QtGui.QIcon(icon_path)
+
     def _update_nav_header_text(self, header: QtWidgets.QToolButton) -> None:
         title = header.property("navTitle")
         if not title:
@@ -1212,6 +1202,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if visible:
             self.control_panel.show()
             self.show_settings_btn.hide()
+            self.hide_settings_btn.setIcon(self._icon("layout-sidebar-left-collapse"))
+            self.hide_settings_btn.setToolTip("Hide settings")
             if restore:
                 if self._cached_settings_splitter_sizes:
                     self.settings_splitter.setSizes(self._cached_settings_splitter_sizes)
@@ -1228,6 +1220,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                     self._cached_settings_splitter_sizes = list(sizes)
             self.control_panel.hide()
             self.show_settings_btn.show()
+            self.show_settings_btn.setIcon(self._icon("layout-sidebar-left-expand"))
+            self.show_settings_btn.setToolTip("Show settings")
             self.settings_splitter.setSizes([0, max(1, sizes[1] if sizes else 1)])
         self.settings_panel_visible = visible
         self.control_panel_action.blockSignals(True)
@@ -2148,7 +2142,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def on_span_step(self, direction: int) -> None:
         try:
-            span_hz = self._step_from_list(self.cfg.sample_rate_hz, self.SPAN_STEPS_HZ, direction)
+            try:
+                current_hz = self._parse_value_to_hz(
+                    self.span_edit.text(), self.span_unit.currentText()
+                )
+            except Exception:
+                current_hz = self.cfg.sample_rate_hz
+            span_hz = self._step_from_list(current_hz, self.SPAN_STEPS_HZ, direction)
             self._apply_span_value(span_hz)
         except Exception as exc:
             self.status_message.setText(f"Span step failed: {exc}")
