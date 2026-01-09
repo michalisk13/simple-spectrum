@@ -1,88 +1,66 @@
-# Simple Spectrum
-A lightweight real time spectrum viewer for the ADALM Pluto SDR using Python, pyadi iio, and pyqtgraph.
+# Pluto Spectrum Analyzer
 
-This is an FFT based spectrum display (not a swept analyzer). The visible span is determined by the Pluto sample rate and the frequency resolution is determined by FFT size.
+## Overview
+Pluto Spectrum Analyzer is a real-time FFT spectrum viewer for the ADALM-Pluto SDR. It provides an instrument-style UI for live spectrum, spectrogram, markers, and trace analysis while preserving calibration and state between runs. The application currently targets the Pluto SDR and its pyadi-iio interface.
 
 ## Features
-- Real time spectrum plot with center frequency control
-- Span control (changes SDR sample rate and RF bandwidth)
-- Gain control mode selection (manual, fast attack, slow attack, hybrid)
-- Manual gain control when in manual mode
-- Auto Y scaling and manual Y scaling (Y min, Y max)
-- Hover tooltip showing frequency and magnitude at the nearest FFT bin
-- Optional auto span behavior (keeps X range aligned to LO ± SR/2)
-
-## How it works
-- **Center frequency** sets the Pluto LO (rx_lo).
-- **Span** is the sampled bandwidth and equals the **sample rate**.
-  - Visible frequency range is approximately: `LO ± sample_rate / 2`
-- **Resolution bandwidth (RBW)** in an FFT analyzer is approximately:
-  - `RBW ≈ sample_rate / FFT_size`
-- The displayed values are a PSD style magnitude in dB (relative, not calibrated dBm).
+- Live spectrum display with center/span controls
+- RBW derived from FFT size and window ENBW
+- VBW smoothing using an EMA in linear power
+- Markers, peak table, and presets
+- Spectrogram modes and LUT controls
+- State persistence for UI and settings
+- Calibration support (dBFS to dBm)
 
 ## Requirements
-- Python 3.9 or newer recommended
-- ADALM Pluto SDR connected via USB or Ethernet gadget mode
-- Pluto reachable at `ip:192.168.2.1` (default gadget mode)
+- Python 3.9+
+- Packages: pyadi-iio, numpy, pyqtgraph, PyQt5/PyQt6
+- OS: Windows and Linux are supported (Linux recommended for USB gadget mode)
 
-### Linux packages you may need
-On Ubuntu or Debian:
+## Install
+1. Create a virtual environment (recommended).
+2. Install dependencies:
+   ```bash
+   python -m pip install pyadi-iio numpy pyqtgraph PyQt6
+   ```
+3. Ensure the Pluto SDR is reachable via USB or Ethernet gadget mode.
 
+## How to run
 ```bash
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv libusb-1.0-0 "
+python spectrum-monitor.py
 ```
 
-## Tips
+## Usage guide
+### Typical workflows
+- **Fast view**: use the Fast View preset for responsive updates while tuning.
+- **Wide scan**: switch to Wide Scan to see more bandwidth at once.
+- **Measure**: use the Measure preset and calibration for repeatable readings.
 
-### GSM and narrow signals
-GSM channels are narrow (200 kHz) and bursty. For better visibility:
+### RBW selection
+RBW is derived from FFT size and the selected window. The RBW dropdown either auto-selects the FFT size or lets you pick a specific RBW that maps to the nearest FFT size for the current span.
 
-- Use a smaller span (for example **1 to 5 MHz**)
-- Use **fast_attack** gain mode to detect activity quickly, then switch to **manual** to avoid saturation
+### Update rate
+The update rate controls UI refresh and worker pacing. Higher rates increase CPU usage and can reduce sweep stability; lower rates improve stability at the cost of responsiveness.
 
-Also note that **GSM900 uplink and downlink are different bands**.  
-Uplink signals may only appear when a phone nearby is actively transmitting.
+### Spectrogram interpretation and settings
+The spectrogram shows time on the Y axis and frequency across X. Adjust the speed (rows/sec) and depth (seconds) to trade between history and responsiveness. LUT and scale options control contrast and dynamic range.
 
----
+## SDR connection configuration
+### Setting the URI
+Open **File → SDR Settings…** to enter a URI (for example, `ip:192.168.2.1`). The last used URI and a short history are saved in state.
 
-### Performance
-High FFT sizes update a lot of points per frame. If the GUI feels slow:
-
-- Use a smaller FFT size (when that feature is added)
-- Increase the update interval
-- Use downsampling and clip-to-view  
-  (already enabled in the refactored code)
-
----
+### Unreachable device
+If the Pluto is not reachable, the test button will report the failure. The application continues running so you can correct the URI and reconnect without restarting.
 
 ## Troubleshooting
+- **No device found**: confirm USB/Ethernet connectivity and that the Pluto responds to `ip:192.168.2.1` (or your custom URI).
+- **Aliasing or unexpected span**: the visible span equals the sample rate; verify the span and RF bandwidth settings.
+- **DC spike**: enable DC removal and adjust DC blanking to reduce LO leakage.
+- **Gaps in trace**: reduce overlap or FFT size if the worker cannot keep up.
+- **Performance tips**: lower FFT size, lower update rate, and disable the spectrogram for best performance.
 
-### I do not see any signal
-Confirm that you can receive samples from the Pluto:
-
-```bash
-python -c "import adi; s=adi.Pluto('ip:192.168.2.1'); s.rx_enabled_channels=[0]; s.rx_buffer_size=4096; s.rx_destroy_buffer(); print(len(s.rx()))"
-```
-
-## TODO
-
-- Add FFT size selector to control **RBW (Resolution Bandwidth)**
-- Display computed **RBW** in the status line
-- Add averaging and **VBW-style smoothing** (EMA over frames)
-- Add **peak hold** and **max hold** traces
-- Add **marker support** (click to place marker, delta markers)
-- Add **waterfall view**
-- Add presets for common bands  
-  - WiFi 2.4  
-  - GSM900 uplink  
-  - GSM900 downlink  
-  - LTE bands
-- Add calibration option  
-  - Relative dB to dBFS  
-  - Approximate dBm using external calibration
-- Add **CSV export** of current trace
-- Add **headless mode** for logging
-
-
-
+## Roadmap
+- Waterfall rendering improvements
+- Multi-receiver support
+- IQ recording
+- Calibration assistant
