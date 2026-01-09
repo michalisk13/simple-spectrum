@@ -4,6 +4,7 @@ Defines the main widgets, menus, and event handlers for the GUI. This module
 must not implement DSP algorithms or direct SDR I/O beyond delegating to helpers.
 """
 
+import html
 import math
 import os
 import time
@@ -1172,18 +1173,20 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.vline.setPen(pg.mkPen("#2A2A2D"))
         self.marker1_line.setPen(pg.mkPen("#1F6AA5"))
         self.marker2_line.setPen(pg.mkPen("#F5A623"))
-        hover_text = self.hover_text.toPlainText()
-        self.hover_text.setText(
-            hover_text,
-            color=pg.mkColor("#E6E6E6"),
-            fill=pg.mkBrush(0, 0, 0, 160),
+        hover_text = html.escape(self.hover_text.toPlainText())
+        self.hover_text.setHtml(
+            "<span style='color:#E6E6E6; background-color: rgba(0,0,0,0.62);"
+            " padding:2px 4px; border-radius:3px;'>"
+            f"{hover_text}"
+            "</span>"
         )
         self.trace_legend_item.setColor(pg.mkColor("#C8C8C8"))
-        disconnected_text = self.disconnected_overlay.toPlainText()
-        self.disconnected_overlay.setText(
-            disconnected_text,
-            color=pg.mkColor("#B0B0B0"),
-            fill=pg.mkBrush(0, 0, 0, 140),
+        disconnected_text = html.escape(self.disconnected_overlay.toPlainText())
+        self.disconnected_overlay.setHtml(
+            "<span style='color:#B0B0B0; background-color: rgba(0,0,0,0.55);"
+            " padding:4px 8px; border-radius:4px;'>"
+            f"{disconnected_text}"
+            "</span>"
         )
 
     def _set_button_role(self, button: QtWidgets.QPushButton, role: str) -> None:
