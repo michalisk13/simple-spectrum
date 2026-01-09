@@ -831,7 +831,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.setLabel("bottom", "Frequency", units="Hz")
         self.spectrogram_plot.showGrid(x=True, y=False, alpha=0.2)
         self.spectrogram_plot.setMouseEnabled(x=False, y=False)
-        self.spectrogram_plot.setXLink(self.plot)
+        # Keep spectrogram range synced manually to avoid X-link conflicts.
         self.spectrogram_image = pg.ImageItem(axisOrder="row-major")
         self.spectrogram_plot.addItem(self.spectrogram_image)
         self.spectrogram_splitter.addWidget(self.spectrogram_plot)
@@ -3422,7 +3422,15 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.hover.update_axis(freqs, display)
         self._update_markers()
 
-        self._sync_plot_range(float(payload["lo"]), float(payload["fs"]))
+        if len(freqs) > 1:
+            x_min = float(freqs[0])
+            x_max = float(freqs[-1])
+            self.plot.setXRange(x_min, x_max, padding=0.0)
+            vb = self.plot.getViewBox()
+            vb.setLimits(xMin=x_min, xMax=x_max)
+            self.last_axis_xlim = (x_min, x_max)
+        else:
+            self._sync_plot_range(float(payload["lo"]), float(payload["fs"]))
 
         self._update_ref_level(display)
         span = float(freqs[-1] - freqs[0]) if len(freqs) > 1 else 0.0
