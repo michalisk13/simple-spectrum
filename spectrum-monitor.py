@@ -725,6 +725,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.single_pending: bool = False
         self.last_axis_span: Optional[float] = None
         self.last_axis_fft: Optional[int] = None
+        self.last_axis_xlim: Optional[Tuple[float, float]] = None
         self.help_overlays_enabled: bool = bool(self.state.get("help_overlays", True))
         self.trace_legend_enabled: bool = bool(self.state.get("trace_legend", True))
         self.spectrogram_enabled: bool = bool(self.state.get("spectrogram_enabled", False))
@@ -3135,6 +3136,14 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._update_peak_table()
         self.hover.update_axis(freqs, display)
         self._update_markers()
+
+        if len(freqs) >= 2:
+            x_min = float(freqs[0])
+            x_max = float(freqs[-1])
+            xlim = (x_min, x_max)
+            if self.last_axis_xlim != xlim:
+                self.plot.setXRange(x_min, x_max, padding=0.0)
+                self.last_axis_xlim = xlim
 
         self._update_ref_level(display)
         span = float(freqs[-1] - freqs[0]) if len(freqs) > 1 else 0.0
