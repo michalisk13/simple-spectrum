@@ -1934,7 +1934,17 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         # Keep the visible span centered on the LO.
         lo = float(self.sdr.lo)
         sr = float(self.sdr.sample_rate)
-        self.plot.setXRange(lo - sr / 2.0, lo + sr / 2.0, padding=0.0)
+        self._sync_plot_range(lo, sr)
+
+    def _sync_plot_range(self, lo: float, sr: float) -> None:
+        x_min = float(lo - sr / 2.0)
+        x_max = float(lo + sr / 2.0)
+        xlim = (x_min, x_max)
+        if self.last_axis_xlim != xlim:
+            self.plot.setXRange(x_min, x_max, padding=0.0)
+            vb = self.plot.getViewBox()
+            vb.setLimits(xMin=x_min, xMax=x_max)
+            self.last_axis_xlim = xlim
 
     def on_set_center(self):
         try:
@@ -3137,13 +3147,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.hover.update_axis(freqs, display)
         self._update_markers()
 
-        if len(freqs) >= 2:
-            x_min = float(freqs[0])
-            x_max = float(freqs[-1])
-            xlim = (x_min, x_max)
-            if self.last_axis_xlim != xlim:
-                self.plot.setXRange(x_min, x_max, padding=0.0)
-                self.last_axis_xlim = xlim
+        self._sync_plot_range(float(payload["lo"]), float(payload["fs"]))
 
         self._update_ref_level(display)
         span = float(freqs[-1] - freqs[0]) if len(freqs) > 1 else 0.0
