@@ -586,6 +586,7 @@ class SpectrumWorker(QtCore.QThread):
                 dc_blank_bins = self.cfg.dc_blank_bins
                 fft_size = self.cfg.fft_size
                 window_name = self.cfg.window
+                update_ms = int(self.cfg.update_ms)
                 if fft_size != self.proc.fft_size or window_name != self.proc.window_name:
                     self.proc.update_fft_size(fft_size, window_name)
                 # Read one large buffer for overlap/detector processing.
@@ -603,13 +604,6 @@ class SpectrumWorker(QtCore.QThread):
             )
             spectrogram_mode = self.cfg.spectrogram_mode
             if spectrogram_mode == "Peak Hold":
-                spectrogram_db = self.proc.compute_spectrogram_peak(
-                    x,
-                    fs_hz=fs,
-                    overlap=overlap,
-                    dc_remove=dc_remove,
-                )
-            elif spectrogram_mode == "Max Power":
                 spectrogram_db = self.proc.compute_spectrogram_peak(
                     x,
                     fs_hz=fs,
@@ -642,7 +636,7 @@ class SpectrumWorker(QtCore.QThread):
             self.new_data.emit(payload)
 
             # Pace updates based on UI update interval.
-            next_time = time.monotonic() + (self.cfg.update_ms / 1000.0)
+            next_time = time.monotonic() + (update_ms / 1000.0)
             sleep_time = max(0.0, next_time - time.monotonic())
             time.sleep(sleep_time)
 
@@ -724,6 +718,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.help_overlays_enabled: bool = bool(self.state.get("help_overlays", True))
         self.trace_legend_enabled: bool = bool(self.state.get("trace_legend", True))
         self.spectrogram_enabled: bool = bool(self.state.get("spectrogram_enabled", False))
+        self.spectrogram_lut_enabled: bool = bool(
+            self.state.get("spectrogram_lut_enabled", True)
+        )
         self.spectrogram_rows: int = int(self.state.get("spectrogram_rows", 200))
         self.spectrogram_rate: float = float(self.state.get("spectrogram_rate", 15.0))
         self.spectrogram_span_s: float = float(
@@ -734,6 +731,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         )
         self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
         self.cfg.spectrogram_mode = self.state.get("spectrogram_mode", self.cfg.spectrogram_mode)
+        if self.cfg.spectrogram_mode not in ("PSD (Welch)", "Peak Hold"):
+            self.cfg.spectrogram_mode = "PSD (Welch)"
         self.spectrogram_scale_mode: str = self.state.get(
             "spectrogram_scale_mode",
             "Auto (5-95%)",
@@ -1056,7 +1055,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         spectrogram_layout.addWidget(QtWidgets.QLabel("Mode"), 0, 0)
         self.spectrogram_mode_cb = QtWidgets.QComboBox()
-        self.spectrogram_mode_cb.addItems(["PSD (Welch)", "Peak Hold", "Max Power"])
+        self.spectrogram_mode_cb.addItems(["PSD (Welch)", "Peak Hold"])
         self.spectrogram_mode_cb.setCurrentText(self.cfg.spectrogram_mode)
         spectrogram_layout.addWidget(self.spectrogram_mode_cb, 0, 1, 1, 3)
 
@@ -1141,16 +1140,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.status.setStyleSheet("QLabel { padding: 4px; font-family: monospace; }")
 
         # Main plot + optional spectrogram waterfall below.
-        self.plotw = pg.GraphicsLayoutWidget()
-        plot_layout.addWidget(self.status)
-
-        self.plot = self.plotw.addPlot(viewBox=SpectrumViewBox(self))
+        self.plot = pg.PlotWidget(viewBox=SpectrumViewBox(self))
         self.plot.setLabel("bottom", "Frequency", units="Hz")
         self.plot.setLabel("left", "Magnitude", units="dBFS")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.plot.setMouseEnabled(x=True, y=False)
+        self.plot.setClipToView(True)
+        plot_layout.addWidget(self.plot, 3)
 
-        self.spectrogram_plot = self.plotw.addPlot(row=1, col=0)
+        spectro_row = QtWidgets.QHBoxLayout()
+        self.spectrogram_plot = pg.PlotWidget()
         # Make time scroll upward visually like a classic waterfall.
         self.spectrogram_plot.invertY(True)
         self.spectrogram_plot.setLabel("left", "Time", units="s")
@@ -1160,6 +1159,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.setXLink(self.plot)
         self.spectrogram_image = pg.ImageItem()
         self.spectrogram_plot.addItem(self.spectrogram_image)
+        spectro_row.addWidget(self.spectrogram_plot, 1)
         # Right side histogram + LUT control for spectrogram (PySDR style).
         self.spectro_lut = pg.HistogramLUTWidget()
         self.spectro_lut.setImageItem(self.spectrogram_image)
@@ -1168,16 +1168,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
         self.spectro_lut.setMaximumWidth(120)
-        plot_row = QtWidgets.QHBoxLayout()
-        plot_row.addWidget(self.plotw, 1)
-        plot_row.addWidget(self.spectro_lut, 0)
-        plot_layout.insertLayout(0, plot_row, 1)
+        spectro_row.addWidget(self.spectro_lut, 0)
+        plot_layout.addLayout(spectro_row, 1)
         self._update_spectrogram_colormap()
         if not self.spectrogram_enabled:
             self.spectrogram_plot.hide()
             self.spectro_lut.hide()
-        self.plotw.ci.layout.setRowStretchFactor(0, 3)
-        self.plotw.ci.layout.setRowStretchFactor(1, 1)
+        plot_layout.addWidget(self.status)
 
         self.curve_trace1 = self.plot.plot(pen=pg.mkPen("w", width=1))
         self.curve_trace2 = self.plot.plot(pen=pg.mkPen("y", width=2, style=QtCore.Qt.DashLine))
@@ -1252,9 +1249,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.trace_legend_action.setChecked(self.trace_legend_enabled)
         self.spectrogram_action = QtWidgets.QAction("Show spectrogram panel", self, checkable=True)
         self.spectrogram_action.setChecked(self.spectrogram_enabled)
+        self.spectrogram_lut_action = QtWidgets.QAction("Show spectrogram LUT", self, checkable=True)
+        self.spectrogram_lut_action.setChecked(self.spectrogram_lut_enabled)
         view_menu.addAction(self.help_overlay_action)
         view_menu.addAction(self.trace_legend_action)
         view_menu.addAction(self.spectrogram_action)
+        view_menu.addAction(self.spectrogram_lut_action)
 
         # Tools for calibration and resetting UI state.
         tools_menu = menu.addMenu("Tools")
@@ -1549,6 +1549,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.help_overlay_action.toggled.connect(self.on_toggle_help_overlays)
         self.trace_legend_action.toggled.connect(self.on_toggle_trace_legend)
         self.spectrogram_action.toggled.connect(self.on_toggle_spectrogram)
+        self.spectrogram_lut_action.toggled.connect(self.on_toggle_spectrogram_lut)
         self.calibration_action.triggered.connect(self.on_open_calibration)
         self.reset_state_action.triggered.connect(self.on_reset_state)
         self.calibration_btn.clicked.connect(self.on_open_calibration)
@@ -1715,6 +1716,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "help_overlays": self.help_overlays_enabled,
             "trace_legend": self.trace_legend_enabled,
             "spectrogram_enabled": self.spectrogram_enabled,
+            "spectrogram_lut_enabled": self.spectrogram_lut_enabled,
             "spectrogram_rows": self.spectrogram_rows,
             "spectrogram_rate": self.spectrogram_rate,
             "spectrogram_span_s": self.spectrogram_span_s,
@@ -2220,6 +2222,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.help_overlays_enabled = True
         self.trace_legend_enabled = True
         self.spectrogram_enabled = False
+        self.spectrogram_lut_enabled = True
         self.spectrogram_rate = 15.0
         self.spectrogram_span_s = 200.0 / self.spectrogram_rate
         self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
@@ -2232,6 +2235,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.help_overlay_action.setChecked(self.help_overlays_enabled)
         self.trace_legend_action.setChecked(self.trace_legend_enabled)
         self.spectrogram_action.setChecked(self.spectrogram_enabled)
+        self.spectrogram_lut_action.setChecked(self.spectrogram_lut_enabled)
         self._apply_initial_state()
         self.status.setText("State reset to defaults")
 
@@ -2276,6 +2280,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def on_toggle_spectrogram(self, checked: bool):
         self.spectrogram_enabled = checked
+        self._apply_spectrogram_visibility()
+
+    def on_toggle_spectrogram_lut(self, checked: bool):
+        self.spectrogram_lut_enabled = checked
         self._apply_spectrogram_visibility()
 
     def on_spectrogram_speed(self, value: str):
@@ -2657,7 +2665,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def _apply_spectrogram_visibility(self) -> None:
         if self.spectrogram_enabled:
             self.spectrogram_plot.show()
-            self.spectro_lut.show()
+            if self.spectrogram_lut_enabled:
+                self.spectro_lut.show()
+            else:
+                self.spectro_lut.hide()
         else:
             self.spectrogram_plot.hide()
             self.spectro_lut.hide()
@@ -2676,6 +2687,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if not self.spectrogram_enabled:
             self.spectrogram_perf_label.setVisible(False)
         self._update_spectrogram_scale_controls()
+        self.spectrogram_lut_action.setEnabled(self.spectrogram_enabled)
 
     def _update_spectrogram(self, freqs: np.ndarray, spec_db: np.ndarray, timestamp: float) -> None:
         if not self.spectrogram_enabled:
@@ -2694,16 +2706,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             return
         if self.spectrogram_buffer is None or self.spectrogram_buffer.shape != (rows, cols):
             self.spectrogram_buffer = np.full((rows, cols), self.spectrogram_min_db, dtype=np.float32)
-        self.spectrogram_buffer = np.roll(self.spectrogram_buffer, -1, axis=0)
+        self.spectrogram_buffer[:-1, :] = self.spectrogram_buffer[1:, :]
         self.spectrogram_buffer[-1, :] = dec_display.astype(np.float32)
 
-        # Display with newest at the bottom, history above it.
-        img = np.flipud(self.spectrogram_buffer)
-        self.spectrogram_image.setImage(img, autoLevels=False)
+        # Display directly. Y direction is handled by invertY(True) on the spectrogram plot.
+        self.spectrogram_image.setImage(self.spectrogram_buffer, autoLevels=False)
 
-        if hasattr(self, "spectrogram_auto_range_cb") and self.spectrogram_auto_range_cb.isChecked():
-            sigma = float(np.std(img))
-            mean = float(np.mean(img))
+        if self.spectrogram_auto_range_cb.isChecked():
+            buf = self.spectrogram_buffer
+            sigma = float(np.std(buf))
+            mean = float(np.mean(buf))
             self.spectrogram_image.setLevels((mean - 2.0 * sigma, mean + 2.0 * sigma))
         else:
             # Keep your manual min max fields as the default levels.
@@ -2720,6 +2732,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             )
             self.spectrogram_image.setRect(rect)
             self.spectrogram_plot.setXRange(float(dec_freqs[0]), float(dec_freqs[-1]), padding=0.0)
+            self.spectrogram_plot.setYRange(0.0, time_span, padding=0.0)
 
     def on_new_data(self, payload: Dict):
         # Store latest payload for the UI refresh timer.
