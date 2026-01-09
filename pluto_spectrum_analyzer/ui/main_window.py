@@ -2128,6 +2128,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._apply_rbw_strategy()
         self.snap_x_to_span()
         self._clear_trace_state_if_needed()
+        self._update_status_readout()
         if self._is_connected():
             self.status_message.setText(f"Span set to {span_hz} Hz")
         else:
