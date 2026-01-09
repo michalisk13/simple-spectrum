@@ -1166,7 +1166,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.showGrid(x=True, y=False, alpha=0.2)
         self.spectrogram_plot.setMouseEnabled(x=False, y=False)
         self.spectrogram_plot.setXLink(self.plot)
-        self.spectrogram_image = pg.ImageItem()
+        self.spectrogram_image = pg.ImageItem(axisOrder="row-major")
         self.spectrogram_plot.addItem(self.spectrogram_image)
         self.spectrogram_splitter.addWidget(self.spectrogram_plot)
 
