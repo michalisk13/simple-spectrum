@@ -23,7 +23,7 @@ from pluto_spectrum_analyzer.persistence import (
     save_state,
     update_recent_uris,
 )
-from pluto_spectrum_analyzer.sdr.pluto import NullSdr, PlutoSdr
+from pluto_spectrum_analyzer.sdr.pluto import NullSdr, PlutoSdr, test_pluto_connection
 from pluto_spectrum_analyzer.ui.dialogs import (
     AboutDialog,
     CalibrationDialog,
@@ -160,11 +160,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         pg.setConfigOption("foreground", "w")
 
         self._pending_sdr_warning: Optional[str] = None
+        self._disconnected_status_message: Optional[str] = None
         try:
             self.sdr = PlutoSdr(cfg)
         except Exception as exc:  # pragma: no cover - hardware errors vary
             self.sdr = NullSdr(cfg)
             self._pending_sdr_warning = str(exc)
+        self.sdr_connected = not isinstance(self.sdr, NullSdr)
+        self._reconnect_timer = QtCore.QTimer()
+        self._reconnect_timer.setInterval(3000)
+        self._reconnect_timer.timeout.connect(self._attempt_reconnect)
         self.proc = SpectrumProcessor(cfg.fft_size, cfg.window)
         self.hover = HoverReadout()
 
@@ -234,6 +239,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         if self._pending_sdr_warning:
             self._notify_missing_sdr(self._pending_sdr_warning)
+            self._reconnect_timer.start()
 
         self.worker = SpectrumWorker(self.sdr, self.proc, cfg)
         self.worker.new_data.connect(self.on_new_data)
@@ -1087,12 +1093,25 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         message = (
             "No SDR detected. Open Settings → SDR Settings... to configure your device."
         )
+        self._disconnected_status_message = message
         self.status.setText(message)
         QtWidgets.QMessageBox.warning(
             self,
             "SDR Not Connected",
             f"{message}\n\nDetails: {error}",
         )
+
+    def _attempt_reconnect(self) -> None:
+        if self.sdr_connected:
+            if self._reconnect_timer.isActive():
+                self._reconnect_timer.stop()
+            return
+        ok, _ = test_pluto_connection(self.cfg.uri)
+        if not ok:
+            return
+        self._restart_sdr()
+        if self.sdr_connected:
+            self.status.setText("SDR connected.")
 
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.Enter and obj in self.help_texts:
@@ -1369,12 +1388,22 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             new_sdr = PlutoSdr(self.cfg)
         except Exception as exc:
             self.status.setText(f"Failed to restart SDR: {exc}")
+            self.sdr_connected = False
+            self._disconnected_status_message = (
+                "No SDR detected. Open Settings → SDR Settings... to configure your device."
+            )
+            if not self._reconnect_timer.isActive():
+                self._reconnect_timer.start()
             self.worker = SpectrumWorker(old_sdr, self.proc, self.cfg)
             self.worker.new_data.connect(self.on_new_data)
             self.worker.start()
             return
         old_sdr.close()
         self.sdr = new_sdr
+        self.sdr_connected = True
+        self._disconnected_status_message = None
+        if self._reconnect_timer.isActive():
+            self._reconnect_timer.stop()
         self.worker = SpectrumWorker(self.sdr, self.proc, self.cfg)
         self.worker.new_data.connect(self.on_new_data)
         self.worker.start()
@@ -2394,7 +2423,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._clear_trace_state_if_needed()
 
     def _update_ref_level(self, display: np.ndarray) -> None:
-        if not self.auto_scale_enabled:
+        if not self.auto_scale_enabled or not self.sdr_connected:
             return
         now = time.monotonic()
         peak = float(np.max(display))
@@ -2797,18 +2826,21 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         # Update status readout with current instrument state.
         self.cfg.rbw_hz = rbw
         self.enbw_label.setText(f"{payload['enbw_bins']:.2f}")
-        self.status.setText(
-            " ".join(
-                [
-                    f"LO {int(payload['lo'])}",
-                    f"SR {int(payload['fs'])}",
-                    f"RBW {rbw:.1f} Hz",
-                    f"FFT {self.cfg.fft_size}",
-                    f"Gain {payload['gain_db']} dB",
-                    f"RF BW {int(payload['rf_bw'])}",
-                ]
+        if self.sdr_connected:
+            self.status.setText(
+                " ".join(
+                    [
+                        f"LO {int(payload['lo'])}",
+                        f"SR {int(payload['fs'])}",
+                        f"RBW {rbw:.1f} Hz",
+                        f"FFT {self.cfg.fft_size}",
+                        f"Gain {payload['gain_db']} dB",
+                        f"RF BW {int(payload['rf_bw'])}",
+                    ]
+                )
             )
-        )
+        elif self._disconnected_status_message:
+            self.status.setText(self._disconnected_status_message)
 
         if self.single_pending:
             self.single_pending = False
