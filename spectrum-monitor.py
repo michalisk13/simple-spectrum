@@ -839,8 +839,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.center_minus_btn.setAutoRepeatDelay(300)
         self.center_minus_btn.setAutoRepeatInterval(60)
         self.center_minus_btn.setAutoRaise(True)
-        self.center_minus_btn.setFixedSize(18, 18)
-        rf_layout.addWidget(self.center_minus_btn, 0, 2)
+        self.center_minus_btn.setFixedSize(16, 16)
 
         self.center_plus_btn = QtWidgets.QToolButton()
         self.center_plus_btn.setText("+")
@@ -848,17 +847,24 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.center_plus_btn.setAutoRepeatDelay(300)
         self.center_plus_btn.setAutoRepeatInterval(60)
         self.center_plus_btn.setAutoRaise(True)
-        self.center_plus_btn.setFixedSize(18, 18)
-        rf_layout.addWidget(self.center_plus_btn, 0, 3)
+        self.center_plus_btn.setFixedSize(16, 16)
+
+        center_btns = QtWidgets.QWidget()
+        center_btns_layout = QtWidgets.QHBoxLayout(center_btns)
+        center_btns_layout.setContentsMargins(2, 0, 2, 0)
+        center_btns_layout.setSpacing(4)
+        center_btns_layout.addWidget(self.center_minus_btn)
+        center_btns_layout.addWidget(self.center_plus_btn)
+        rf_layout.addWidget(center_btns, 0, 2)
 
         self.freq_unit = QtWidgets.QComboBox()
         self.freq_unit.addItems(["Hz", "kHz", "MHz", "GHz"])
         self.freq_unit.setCurrentText("MHz")
         self.freq_unit.setFixedWidth(70)
-        rf_layout.addWidget(self.freq_unit, 0, 4)
+        rf_layout.addWidget(self.freq_unit, 0, 3)
 
         self.set_btn = QtWidgets.QPushButton("Set")
-        rf_layout.addWidget(self.set_btn, 0, 5)
+        rf_layout.addWidget(self.set_btn, 0, 4)
 
         rf_layout.addWidget(QtWidgets.QLabel("Span"), 1, 0)
         self.span_edit = QtWidgets.QLineEdit()
@@ -872,8 +878,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.span_minus_btn.setAutoRepeatDelay(300)
         self.span_minus_btn.setAutoRepeatInterval(80)
         self.span_minus_btn.setAutoRaise(True)
-        self.span_minus_btn.setFixedSize(18, 18)
-        rf_layout.addWidget(self.span_minus_btn, 1, 2)
+        self.span_minus_btn.setFixedSize(16, 16)
 
         self.span_plus_btn = QtWidgets.QToolButton()
         self.span_plus_btn.setText("+")
@@ -881,17 +886,24 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.span_plus_btn.setAutoRepeatDelay(300)
         self.span_plus_btn.setAutoRepeatInterval(80)
         self.span_plus_btn.setAutoRaise(True)
-        self.span_plus_btn.setFixedSize(18, 18)
-        rf_layout.addWidget(self.span_plus_btn, 1, 3)
+        self.span_plus_btn.setFixedSize(16, 16)
+
+        span_btns = QtWidgets.QWidget()
+        span_btns_layout = QtWidgets.QHBoxLayout(span_btns)
+        span_btns_layout.setContentsMargins(2, 0, 2, 0)
+        span_btns_layout.setSpacing(4)
+        span_btns_layout.addWidget(self.span_minus_btn)
+        span_btns_layout.addWidget(self.span_plus_btn)
+        rf_layout.addWidget(span_btns, 1, 2)
 
         self.span_unit = QtWidgets.QComboBox()
         self.span_unit.addItems(["Hz", "kHz", "MHz"])
         self.span_unit.setCurrentText("MHz")
         self.span_unit.setFixedWidth(70)
-        rf_layout.addWidget(self.span_unit, 1, 4)
+        rf_layout.addWidget(self.span_unit, 1, 3)
 
         self.apply_span_btn = QtWidgets.QPushButton("Apply")
-        rf_layout.addWidget(self.apply_span_btn, 1, 5)
+        rf_layout.addWidget(self.apply_span_btn, 1, 4)
 
         rf_layout.addWidget(QtWidgets.QLabel("RF BW"), 2, 0)
         self.rfbw_edit = QtWidgets.QLineEdit()
@@ -905,8 +917,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.rfbw_minus_btn.setAutoRepeatDelay(300)
         self.rfbw_minus_btn.setAutoRepeatInterval(80)
         self.rfbw_minus_btn.setAutoRaise(True)
-        self.rfbw_minus_btn.setFixedSize(18, 18)
-        rf_layout.addWidget(self.rfbw_minus_btn, 2, 2)
+        self.rfbw_minus_btn.setFixedSize(16, 16)
 
         self.rfbw_plus_btn = QtWidgets.QToolButton()
         self.rfbw_plus_btn.setText("+")
@@ -914,17 +925,24 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.rfbw_plus_btn.setAutoRepeatDelay(300)
         self.rfbw_plus_btn.setAutoRepeatInterval(80)
         self.rfbw_plus_btn.setAutoRaise(True)
-        self.rfbw_plus_btn.setFixedSize(18, 18)
-        rf_layout.addWidget(self.rfbw_plus_btn, 2, 3)
+        self.rfbw_plus_btn.setFixedSize(16, 16)
+
+        rfbw_btns = QtWidgets.QWidget()
+        rfbw_btns_layout = QtWidgets.QHBoxLayout(rfbw_btns)
+        rfbw_btns_layout.setContentsMargins(2, 0, 2, 0)
+        rfbw_btns_layout.setSpacing(4)
+        rfbw_btns_layout.addWidget(self.rfbw_minus_btn)
+        rfbw_btns_layout.addWidget(self.rfbw_plus_btn)
+        rf_layout.addWidget(rfbw_btns, 2, 2)
 
         self.rfbw_unit = QtWidgets.QComboBox()
         self.rfbw_unit.addItems(["Hz", "kHz", "MHz"])
         self.rfbw_unit.setCurrentText("MHz")
         self.rfbw_unit.setFixedWidth(70)
-        rf_layout.addWidget(self.rfbw_unit, 2, 4)
+        rf_layout.addWidget(self.rfbw_unit, 2, 3)
 
         self.apply_rfbw_btn = QtWidgets.QPushButton("Set")
-        rf_layout.addWidget(self.apply_rfbw_btn, 2, 5)
+        rf_layout.addWidget(self.apply_rfbw_btn, 2, 4)
 
         rf_layout.addWidget(QtWidgets.QLabel("Gain mode"), 3, 0)
         self.gainmode_cb = QtWidgets.QComboBox()
@@ -1966,10 +1984,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def on_center_step(self, direction: int) -> None:
         try:
             step = self._center_step_hz()
-            try:
-                base = self._parse_value_to_hz(self.freq_edit.text(), self.freq_unit.currentText())
-            except Exception:
-                base = int(self.cfg.center_hz)
+            base = int(self.cfg.center_hz)
             hz = int(round(base + direction * step))
             with QtCore.QMutexLocker(self.worker._lock):
                 self.sdr.set_center_hz(hz)
