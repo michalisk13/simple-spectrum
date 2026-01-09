@@ -77,7 +77,7 @@ class SpectrumViewBox(pg.ViewBox):
         super().__init__(enableMenu=False)
         self.owner = owner
 
-    def wheelEvent(self, ev):
+    def wheelEvent(self, ev, axis=None):
         if ev.modifiers() & QtCore.Qt.ShiftModifier:
             # Shift+wheel zooms span around the cursor without changing Y scale.
             delta = ev.angleDelta().y() if hasattr(ev, "angleDelta") else ev.delta()
