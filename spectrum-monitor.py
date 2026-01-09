@@ -88,6 +88,9 @@ class SpectrumConfig:
     ref_level_db: float = 0.0
     display_range_db: float = 100.0
 
+    # Spectrogram defaults.
+    spectrogram_mode: str = "PSD (Welch)"
+
     # Measurement helpers.
     measurement_mode: bool = False
     dc_remove: bool = True
@@ -364,6 +367,93 @@ class SpectrumProcessor:
 
         return power_accum.astype(np.float32), max(count, 1)
 
+    def compute_spectrogram_slice(
+        self,
+        x: np.ndarray,
+        fs_hz: float,
+        overlap: float,
+        dc_remove: bool,
+    ) -> np.ndarray:
+        """
+        Returns ONE PSD slice (dB) suitable for the spectrogram.
+        Uses Welch-style averaging over the buffer.
+        """
+        n = self.fft_size
+        if len(self.window) != n:
+            self.update_fft_size(n, self.window_name)
+        if len(x) < n:
+            pad = np.zeros(n, dtype=np.complex64)
+            pad[: len(x)] = x
+            x = pad
+
+        if dc_remove:
+            x = x - np.mean(x)
+
+        step = max(int(n * (1.0 - overlap)), 1)
+        starts = range(0, len(x) - n + 1, step)
+
+        power_accum = None
+        count = 0
+
+        for start in starts:
+            segment = x[start : start + n]
+            if len(segment) != len(self.window):
+                continue
+            windowed = segment * self.window
+            spectrum = np.fft.fftshift(np.fft.fft(windowed))
+            power = (np.abs(spectrum) / (n * self.coherent_gain)) ** 2
+
+            if power_accum is None:
+                power_accum = power
+            else:
+                power_accum = power_accum + power
+            count += 1
+
+        if power_accum is None:
+            power_accum = np.zeros(n, dtype=np.float32)
+        elif count > 0:
+            power_accum = power_accum / float(count)
+
+        return 10.0 * np.log10(np.maximum(power_accum, 1e-20)).astype(np.float32)
+
+    def compute_spectrogram_peak(
+        self,
+        x: np.ndarray,
+        fs_hz: float,
+        overlap: float,
+        dc_remove: bool,
+    ) -> np.ndarray:
+        n = self.fft_size
+        if len(self.window) != n:
+            self.update_fft_size(n, self.window_name)
+        if len(x) < n:
+            pad = np.zeros(n, dtype=np.complex64)
+            pad[: len(x)] = x
+            x = pad
+
+        if dc_remove:
+            x = x - np.mean(x)
+
+        step = max(int(n * (1.0 - overlap)), 1)
+        starts = range(0, len(x) - n + 1, step)
+
+        power_accum = None
+        for start in starts:
+            segment = x[start : start + n]
+            if len(segment) != len(self.window):
+                continue
+            windowed = segment * self.window
+            spectrum = np.fft.fftshift(np.fft.fft(windowed))
+            power = (np.abs(spectrum) / (n * self.coherent_gain)) ** 2
+            if power_accum is None:
+                power_accum = power
+            else:
+                power_accum = np.maximum(power_accum, power)
+
+        if power_accum is None:
+            power_accum = np.zeros(n, dtype=np.float32)
+        return 10.0 * np.log10(np.maximum(power_accum, 1e-20)).astype(np.float32)
+
     def freqs_hz(self, fs_hz: float, lo_hz: float) -> np.ndarray:
         n = self.fft_size
         f = np.fft.fftshift(np.fft.fftfreq(n, d=1.0 / float(fs_hz)))
@@ -511,12 +601,35 @@ class SpectrumWorker(QtCore.QThread):
                 dc_remove=dc_remove,
                 dc_blank_bins=dc_blank_bins,
             )
+            spectrogram_mode = self.cfg.spectrogram_mode
+            if spectrogram_mode == "Peak Hold":
+                spectrogram_db = self.proc.compute_spectrogram_peak(
+                    x,
+                    fs_hz=fs,
+                    overlap=overlap,
+                    dc_remove=dc_remove,
+                )
+            elif spectrogram_mode == "Max Power":
+                spectrogram_db = self.proc.compute_spectrogram_peak(
+                    x,
+                    fs_hz=fs,
+                    overlap=overlap,
+                    dc_remove=dc_remove,
+                )
+            else:
+                spectrogram_db = self.proc.compute_spectrogram_slice(
+                    x,
+                    fs_hz=fs,
+                    overlap=overlap,
+                    dc_remove=dc_remove,
+                )
             freqs = self.proc.freqs_hz(fs, lo)
             rbw = self.proc.rbw_hz(fs)
 
             payload = {
                 "freqs": freqs,
                 "power": power,
+                "spectrogram_db": spectrogram_db,
                 "rbw": rbw,
                 "enbw_bins": self.proc.enbw_bins,
                 "fft_count": count,
@@ -613,9 +726,22 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_enabled: bool = bool(self.state.get("spectrogram_enabled", False))
         self.spectrogram_rows: int = int(self.state.get("spectrogram_rows", 200))
         self.spectrogram_rate: float = float(self.state.get("spectrogram_rate", 15.0))
+        self.spectrogram_span_s: float = float(
+            self.state.get(
+                "spectrogram_span_s",
+                self.spectrogram_rows / max(self.spectrogram_rate, 1e-3),
+            )
+        )
+        self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+        self.cfg.spectrogram_mode = self.state.get("spectrogram_mode", self.cfg.spectrogram_mode)
+        self.spectrogram_scale_mode: str = self.state.get(
+            "spectrogram_scale_mode",
+            "Auto (5-95%)",
+        )
         self.spectrogram_cmap: str = self.state.get("spectrogram_cmap", "viridis")
         self.spectrogram_min_db: float = float(self.state.get("spectrogram_min_db", -120.0))
         self.spectrogram_max_db: float = float(self.state.get("spectrogram_max_db", 0.0))
+        self.spectrogram_floor_db: Optional[float] = None
         self.spectrogram_buffer: Optional[np.ndarray] = None
         self.spectrogram_last_ts: float = 0.0
         self.peak_table_indices: list[int] = []
@@ -658,13 +784,32 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         brand_layout.addStretch(1)
         layout.addLayout(brand_layout)
 
-        top_grid = QtWidgets.QGridLayout()
-        top_grid.setHorizontalSpacing(8)
-        top_grid.setVerticalSpacing(8)
-        layout.addLayout(top_grid)
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        layout.addWidget(splitter, 1)
 
-        rf_box = QtWidgets.QGroupBox("RF")
-        rf_layout = QtWidgets.QGridLayout(rf_box)
+        control_panel = QtWidgets.QScrollArea()
+        control_panel.setWidgetResizable(True)
+        control_panel.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        splitter.addWidget(control_panel)
+
+        control_contents = QtWidgets.QWidget()
+        control_layout = QtWidgets.QVBoxLayout(control_contents)
+        control_layout.setContentsMargins(0, 0, 0, 0)
+        control_panel.setWidget(control_contents)
+
+        self.control_toolbox = QtWidgets.QToolBox()
+        control_layout.addWidget(self.control_toolbox)
+        control_layout.addStretch(1)
+
+        plot_container = QtWidgets.QWidget()
+        plot_layout = QtWidgets.QVBoxLayout(plot_container)
+        plot_layout.setContentsMargins(0, 0, 0, 0)
+        splitter.addWidget(plot_container)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+
+        rf_widget = QtWidgets.QWidget()
+        rf_layout = QtWidgets.QGridLayout(rf_widget)
         rf_layout.setHorizontalSpacing(6)
         rf_layout.setVerticalSpacing(4)
 
@@ -730,10 +875,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.measurement_cb = QtWidgets.QCheckBox("Measurement mode")
         rf_layout.addWidget(self.measurement_cb, 4, 0, 1, 3)
 
-        top_grid.addWidget(rf_box, 0, 0)
+        self.control_toolbox.addItem(rf_widget, "RF")
 
-        sweep_box = QtWidgets.QGroupBox("Sweep")
-        sweep_layout = QtWidgets.QGridLayout(sweep_box)
+        sweep_widget = QtWidgets.QWidget()
+        sweep_layout = QtWidgets.QGridLayout(sweep_widget)
         sweep_layout.setHorizontalSpacing(6)
         sweep_layout.setVerticalSpacing(4)
 
@@ -772,22 +917,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.window_cb.addItems(["Hann", "Blackman Harris", "Flat top"])
         sweep_layout.addWidget(self.window_cb, 2, 3)
 
-        sweep_layout.addWidget(QtWidgets.QLabel("Overlap"), 3, 0)
-        self.overlap_edit = QtWidgets.QLineEdit()
-        self.overlap_edit.setFixedWidth(60)
-        self.overlap_edit.setAlignment(QtCore.Qt.AlignRight)
-        sweep_layout.addWidget(self.overlap_edit, 3, 1)
-
         sweep_layout.addWidget(QtWidgets.QLabel("Update Hz"), 3, 2)
         self.update_hz_edit = QtWidgets.QLineEdit()
         self.update_hz_edit.setFixedWidth(60)
         self.update_hz_edit.setAlignment(QtCore.Qt.AlignRight)
         sweep_layout.addWidget(self.update_hz_edit, 3, 3)
 
-        top_grid.addWidget(sweep_box, 0, 1)
+        self.control_toolbox.addItem(sweep_widget, "Sweep / FFT")
 
-        trace_box = QtWidgets.QGroupBox("Trace / Display")
-        trace_layout = QtWidgets.QGridLayout(trace_box)
+        trace_widget = QtWidgets.QWidget()
+        trace_layout = QtWidgets.QGridLayout(trace_widget)
         trace_layout.setHorizontalSpacing(6)
         trace_layout.setVerticalSpacing(4)
 
@@ -848,12 +987,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.dc_remove_cb = QtWidgets.QCheckBox("DC remove")
         trace_layout.addWidget(self.dc_remove_cb, 6, 0, 1, 2)
 
-        trace_layout.addWidget(QtWidgets.QLabel("DC blank bins"), 6, 2)
-        self.dc_blank_edit = QtWidgets.QLineEdit()
-        self.dc_blank_edit.setFixedWidth(50)
-        self.dc_blank_edit.setAlignment(QtCore.Qt.AlignRight)
-        trace_layout.addWidget(self.dc_blank_edit, 6, 3)
-
         self.run_stop_btn = QtWidgets.QPushButton("Run")
         self.single_btn = QtWidgets.QPushButton("Single")
         trace_layout.addWidget(self.run_stop_btn, 7, 0, 1, 2)
@@ -862,10 +995,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.save_csv_btn = QtWidgets.QPushButton("Save trace CSV")
         trace_layout.addWidget(self.save_csv_btn, 8, 0, 1, 4)
 
-        top_grid.addWidget(trace_box, 1, 0)
+        self.control_toolbox.addItem(trace_widget, "Traces & Scaling")
 
-        markers_box = QtWidgets.QGroupBox("Markers")
-        markers_layout = QtWidgets.QVBoxLayout(markers_box)
+        markers_widget = QtWidgets.QWidget()
+        markers_layout = QtWidgets.QVBoxLayout(markers_widget)
         markers_layout.setSpacing(4)
         self.marker_info = QtWidgets.QLabel("M1: --\nM2: --\nΔ : --\nNoise: --")
         self.marker_info.setStyleSheet("QLabel { font-family: monospace; }")
@@ -895,10 +1028,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.marker_to_center_btn = QtWidgets.QPushButton("Marker to Center")
         markers_layout.addWidget(self.marker_to_center_btn)
 
-        top_grid.addWidget(markers_box, 1, 1)
+        self.control_toolbox.addItem(markers_widget, "Markers")
 
-        presets_box = QtWidgets.QGroupBox("Presets")
-        presets_layout = QtWidgets.QGridLayout(presets_box)
+        presets_widget = QtWidgets.QWidget()
+        presets_layout = QtWidgets.QGridLayout(presets_widget)
         presets_layout.setHorizontalSpacing(6)
         presets_layout.setVerticalSpacing(4)
 
@@ -914,45 +1047,100 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.measure_detector_cb.addItems(["Peak", "RMS"])
         presets_layout.addWidget(self.measure_detector_cb, 1, 1)
 
-        top_grid.addWidget(presets_box, 0, 2, 2, 1)
+        self.control_toolbox.addItem(presets_widget, "Presets")
 
-        self.status = QtWidgets.QLabel("")
-        self.status.setStyleSheet("QLabel { padding: 4px; font-family: monospace; }")
-        layout.addWidget(self.status)
+        spectrogram_widget = QtWidgets.QWidget()
+        spectrogram_layout = QtWidgets.QGridLayout(spectrogram_widget)
+        spectrogram_layout.setHorizontalSpacing(6)
+        spectrogram_layout.setVerticalSpacing(4)
 
-        spectro_bar = QtWidgets.QHBoxLayout()
-        spectro_bar.addWidget(QtWidgets.QLabel("Spectrogram"))
+        spectrogram_layout.addWidget(QtWidgets.QLabel("Mode"), 0, 0)
+        self.spectrogram_mode_cb = QtWidgets.QComboBox()
+        self.spectrogram_mode_cb.addItems(["PSD (Welch)", "Peak Hold", "Max Power"])
+        self.spectrogram_mode_cb.setCurrentText(self.cfg.spectrogram_mode)
+        spectrogram_layout.addWidget(self.spectrogram_mode_cb, 0, 1, 1, 3)
+
+        spectrogram_layout.addWidget(QtWidgets.QLabel("Time Resolution (slices/s)"), 1, 0)
         self.spectrogram_speed_cb = QtWidgets.QComboBox()
         self.spectrogram_speed_cb.addItems(["5", "10", "15", "20", "30"])
         self.spectrogram_speed_cb.setCurrentText(f"{int(self.spectrogram_rate)}")
-        spectro_bar.addWidget(QtWidgets.QLabel("Speed (rows/s)"))
-        spectro_bar.addWidget(self.spectrogram_speed_cb)
+        spectrogram_layout.addWidget(self.spectrogram_speed_cb, 1, 1)
+        self.spectrogram_perf_label = QtWidgets.QLabel("↓ resolution")
+        self.spectrogram_perf_label.setStyleSheet("QLabel { color: #f4b400; }")
+        self.spectrogram_perf_label.setVisible(False)
+        spectrogram_layout.addWidget(self.spectrogram_perf_label, 1, 2, 1, 2)
+
+        spectrogram_layout.addWidget(QtWidgets.QLabel("Time Span (s)"), 2, 0)
         self.spectrogram_depth_cb = QtWidgets.QComboBox()
-        self.spectrogram_depth_cb.addItems(["100", "200", "300", "400"])
-        self.spectrogram_depth_cb.setCurrentText(f"{self.spectrogram_rows}")
-        spectro_bar.addWidget(QtWidgets.QLabel("Depth (rows)"))
-        spectro_bar.addWidget(self.spectrogram_depth_cb)
+        self.spectrogram_depth_cb.addItems(["5", "10", "15", "20", "30", "60"])
+        self.spectrogram_depth_cb.setCurrentText(f"{int(round(self.spectrogram_span_s))}")
+        spectrogram_layout.addWidget(self.spectrogram_depth_cb, 2, 1)
+
+        spectrogram_layout.addWidget(QtWidgets.QLabel("Colormap"), 3, 0)
         self.spectrogram_cmap_cb = QtWidgets.QComboBox()
         self.spectrogram_cmap_cb.addItems(["viridis", "plasma"])
         self.spectrogram_cmap_cb.setCurrentText(self.spectrogram_cmap)
-        spectro_bar.addWidget(QtWidgets.QLabel("Colormap"))
-        spectro_bar.addWidget(self.spectrogram_cmap_cb)
+        spectrogram_layout.addWidget(self.spectrogram_cmap_cb, 3, 1)
+
+        spectrogram_layout.addWidget(QtWidgets.QLabel("Scale"), 4, 0)
+        self.spectrogram_scale_cb = QtWidgets.QComboBox()
+        self.spectrogram_scale_cb.addItems(["Auto (5-95%)", "Fixed floor", "Manual (Expert)"])
+        self.spectrogram_scale_cb.setCurrentText(self.spectrogram_scale_mode)
+        spectrogram_layout.addWidget(self.spectrogram_scale_cb, 4, 1)
+
         self.spectrogram_min_edit = QtWidgets.QLineEdit(f"{self.spectrogram_min_db:.0f}")
         self.spectrogram_min_edit.setFixedWidth(60)
         self.spectrogram_min_edit.setAlignment(QtCore.Qt.AlignRight)
         self.spectrogram_max_edit = QtWidgets.QLineEdit(f"{self.spectrogram_max_db:.0f}")
         self.spectrogram_max_edit.setFixedWidth(60)
         self.spectrogram_max_edit.setAlignment(QtCore.Qt.AlignRight)
-        spectro_bar.addWidget(QtWidgets.QLabel("dB min"))
-        spectro_bar.addWidget(self.spectrogram_min_edit)
-        spectro_bar.addWidget(QtWidgets.QLabel("dB max"))
-        spectro_bar.addWidget(self.spectrogram_max_edit)
-        spectro_bar.addStretch(1)
-        layout.addLayout(spectro_bar)
+        spectrogram_layout.addWidget(QtWidgets.QLabel("dB min"), 5, 0)
+        spectrogram_layout.addWidget(self.spectrogram_min_edit, 5, 1)
+        spectrogram_layout.addWidget(QtWidgets.QLabel("dB max"), 5, 2)
+        spectrogram_layout.addWidget(self.spectrogram_max_edit, 5, 3)
+
+        self.control_toolbox.addItem(spectrogram_widget, "Spectrogram")
+
+        advanced_widget = QtWidgets.QWidget()
+        advanced_layout = QtWidgets.QGridLayout(advanced_widget)
+        advanced_layout.setHorizontalSpacing(6)
+        advanced_layout.setVerticalSpacing(4)
+
+        advanced_layout.addWidget(QtWidgets.QLabel("Overlap"), 0, 0)
+        self.overlap_edit = QtWidgets.QLineEdit()
+        self.overlap_edit.setFixedWidth(60)
+        self.overlap_edit.setAlignment(QtCore.Qt.AlignRight)
+        advanced_layout.addWidget(self.overlap_edit, 0, 1)
+
+        advanced_layout.addWidget(QtWidgets.QLabel("Buffer factor"), 1, 0)
+        self.buffer_factor_edit = QtWidgets.QLineEdit()
+        self.buffer_factor_edit.setFixedWidth(60)
+        self.buffer_factor_edit.setAlignment(QtCore.Qt.AlignRight)
+        advanced_layout.addWidget(self.buffer_factor_edit, 1, 1)
+
+        advanced_layout.addWidget(QtWidgets.QLabel("DC blank bins"), 2, 0)
+        self.dc_blank_edit = QtWidgets.QLineEdit()
+        self.dc_blank_edit.setFixedWidth(50)
+        self.dc_blank_edit.setAlignment(QtCore.Qt.AlignRight)
+        advanced_layout.addWidget(self.dc_blank_edit, 2, 1)
+
+        advanced_layout.addWidget(QtWidgets.QLabel("ENBW (bins)"), 3, 0)
+        self.enbw_label = QtWidgets.QLabel("--")
+        advanced_layout.addWidget(self.enbw_label, 3, 1)
+
+        self.calibration_btn = QtWidgets.QPushButton("Calibration...")
+        advanced_layout.addWidget(self.calibration_btn, 4, 0, 1, 2)
+
+        self.control_toolbox.addItem(advanced_widget, "Advanced")
+        self.control_toolbox.setCurrentIndex(0)
+
+        self.status = QtWidgets.QLabel("")
+        self.status.setStyleSheet("QLabel { padding: 4px; font-family: monospace; }")
 
         # Main plot + optional spectrogram waterfall below.
         self.plotw = pg.GraphicsLayoutWidget()
-        layout.addWidget(self.plotw, 1)
+        plot_layout.addWidget(self.plotw, 1)
+        plot_layout.addWidget(self.status)
 
         self.plot = self.plotw.addPlot(viewBox=SpectrumViewBox(self))
         self.plot.setLabel("bottom", "Frequency", units="Hz")
@@ -962,15 +1150,17 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         self.spectrogram_plot = self.plotw.addPlot(row=1, col=0)
         self.spectrogram_plot.setLabel("bottom", "Frequency", units="Hz")
-        self.spectrogram_plot.setLabel("left", "Time", units="")
+        self.spectrogram_plot.setLabel("left", "Time (s ago)", units="s")
         self.spectrogram_plot.showGrid(x=True, y=False, alpha=0.2)
         self.spectrogram_plot.setMouseEnabled(x=False, y=False)
+        self.spectrogram_plot.setXLink(self.plot)
         self.spectrogram_image = pg.ImageItem()
         self.spectrogram_plot.addItem(self.spectrogram_image)
-        self.spectrogram_plot.setMaximumHeight(220)
         self._update_spectrogram_colormap()
         if not self.spectrogram_enabled:
             self.spectrogram_plot.hide()
+        self.plotw.ci.setRowStretchFactor(0, 3)
+        self.plotw.ci.setRowStretchFactor(1, 1)
 
         self.curve_trace1 = self.plot.plot(pen=pg.mkPen("w", width=1))
         self.curve_trace2 = self.plot.plot(pen=pg.mkPen("y", width=2, style=QtCore.Qt.DashLine))
@@ -1157,6 +1347,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "Overlap fraction (0-1). Higher overlap improves detection but uses more CPU. Default 0.5.",
         )
         self._register_help(
+            self.buffer_factor_edit,
+            "Buffer factor. Multiplies FFT size to capture more slices per read. Higher values cost memory.",
+        )
+        self._register_help(
             self.update_hz_edit,
             "Update rate (Hz). Higher rates refresh faster but cost CPU. Default 10 Hz.",
         )
@@ -1244,6 +1438,26 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.measure_detector_cb,
             "Measure preset detector. Controls detector type for measurement preset.",
         )
+        self._register_help(
+            self.spectrogram_mode_cb,
+            "Spectrogram mode. PSD averages FFTs (Welch). Peak Hold tracks maxima. Max Power is experimental.",
+        )
+        self._register_help(
+            self.spectrogram_speed_cb,
+            "Spectrogram time resolution in slices per second.",
+        )
+        self._register_help(
+            self.spectrogram_depth_cb,
+            "Spectrogram time span in seconds.",
+        )
+        self._register_help(
+            self.spectrogram_scale_cb,
+            "Color scale mode. Auto uses percentiles; Fixed locks the noise floor; Manual is expert-only.",
+        )
+        self._register_help(
+            self.calibration_btn,
+            "Calibration tools for dBFS to dBm conversion and external gain.",
+        )
 
     def eventFilter(self, obj, event):
         if event.type() == QtCore.QEvent.Enter and obj in self.help_texts:
@@ -1279,6 +1493,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.detector_cb.currentTextChanged.connect(self.on_detector_changed)
         self.overlap_edit.editingFinished.connect(self.on_overlap_changed)
         self.update_hz_edit.editingFinished.connect(self.on_update_rate_changed)
+        self.buffer_factor_edit.editingFinished.connect(self.on_buffer_factor_changed)
 
         self.trace1_mode_cb.currentTextChanged.connect(self.on_trace1_mode_changed)
         self.trace2_mode_cb.currentTextChanged.connect(self.on_trace2_mode_changed)
@@ -1319,12 +1534,15 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_action.toggled.connect(self.on_toggle_spectrogram)
         self.calibration_action.triggered.connect(self.on_open_calibration)
         self.reset_state_action.triggered.connect(self.on_reset_state)
+        self.calibration_btn.clicked.connect(self.on_open_calibration)
         self.preset_fast_action.triggered.connect(lambda: self.apply_preset("Fast View"))
         self.preset_wide_action.triggered.connect(lambda: self.apply_preset("Wide Scan"))
         self.preset_measure_action.triggered.connect(lambda: self.apply_preset("Measure"))
 
+        self.spectrogram_mode_cb.currentTextChanged.connect(self.on_spectrogram_mode)
         self.spectrogram_speed_cb.currentTextChanged.connect(self.on_spectrogram_speed)
         self.spectrogram_depth_cb.currentTextChanged.connect(self.on_spectrogram_depth)
+        self.spectrogram_scale_cb.currentTextChanged.connect(self.on_spectrogram_scale_mode)
         self.spectrogram_cmap_cb.currentTextChanged.connect(self.on_spectrogram_cmap)
         self.spectrogram_min_edit.editingFinished.connect(self.on_spectrogram_range)
         self.spectrogram_max_edit.editingFinished.connect(self.on_spectrogram_range)
@@ -1345,6 +1563,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.detector_cb.setCurrentText(self.cfg.detector)
         self.window_cb.setCurrentText(self.cfg.window)
         self.overlap_edit.setText(f"{self.cfg.overlap:.2f}")
+        self.buffer_factor_edit.setText(str(self.cfg.buffer_factor))
         update_hz = max(0.1, 1000.0 / float(self.cfg.update_ms))
         self.update_hz_edit.setText(f"{update_hz:.1f}")
 
@@ -1367,6 +1586,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.hold_across_cb.setChecked(self.hold_across_settings)
         self.dc_remove_cb.setChecked(self.cfg.dc_remove)
         self.dc_blank_edit.setText(str(self.cfg.dc_blank_bins))
+        self.spectrogram_mode_cb.setCurrentText(self.cfg.spectrogram_mode)
+        self.spectrogram_scale_cb.setCurrentText(self.spectrogram_scale_mode)
+        self.spectrogram_rate = self._set_combo_to_nearest(
+            self.spectrogram_speed_cb, self.spectrogram_rate
+        )
+        self.spectrogram_span_s = self._set_combo_to_nearest(
+            self.spectrogram_depth_cb, self.spectrogram_span_s
+        )
+        self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+        self._update_spectrogram_scale_controls()
 
         self.run_stop_btn.setText("Stop" if self.run_state else "Run")
         self.ref_edit.setEnabled(not self.auto_scale_enabled)
@@ -1411,6 +1640,24 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if current and current in [self.amp_mode_cb.itemText(i) for i in range(self.amp_mode_cb.count())]:
             self.amp_mode_cb.setCurrentText(current)
 
+    def _set_combo_to_nearest(self, combo: QtWidgets.QComboBox, value: float) -> float:
+        values = []
+        indices = []
+        for idx in range(combo.count()):
+            try:
+                values.append(float(combo.itemText(idx)))
+                indices.append(idx)
+            except ValueError:
+                continue
+        if not values:
+            return value
+        best_pos = min(range(len(values)), key=lambda i: abs(values[i] - value))
+        best_idx = indices[best_pos]
+        combo.blockSignals(True)
+        combo.setCurrentIndex(best_idx)
+        combo.blockSignals(False)
+        return values[best_pos]
+
     def _load_state(self) -> Dict:
         if not os.path.exists(STATE_PATH):
             return {}
@@ -1453,6 +1700,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "spectrogram_enabled": self.spectrogram_enabled,
             "spectrogram_rows": self.spectrogram_rows,
             "spectrogram_rate": self.spectrogram_rate,
+            "spectrogram_span_s": self.spectrogram_span_s,
+            "spectrogram_mode": self.cfg.spectrogram_mode,
+            "spectrogram_scale_mode": self.spectrogram_scale_mode,
             "spectrogram_cmap": self.spectrogram_cmap,
             "spectrogram_min_db": self.spectrogram_min_db,
             "spectrogram_max_db": self.spectrogram_max_db,
@@ -1618,6 +1868,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.overlap_edit.setText(f"{overlap:.2f}")
         self._set_cfg(overlap=overlap)
         self.worker.queue_config({"overlap": overlap})
+
+    def on_buffer_factor_changed(self):
+        try:
+            buffer_factor = int(self.buffer_factor_edit.text().strip())
+        except ValueError:
+            buffer_factor = self.cfg.buffer_factor
+        buffer_factor = max(1, buffer_factor)
+        self.buffer_factor_edit.setText(str(buffer_factor))
+        self._set_cfg(buffer_factor=buffer_factor)
+        self.worker.queue_config({"buffer_factor": buffer_factor})
 
     def on_update_rate_changed(self):
         try:
@@ -1943,6 +2203,15 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.help_overlays_enabled = True
         self.trace_legend_enabled = True
         self.spectrogram_enabled = False
+        self.spectrogram_rate = 15.0
+        self.spectrogram_span_s = 200.0 / self.spectrogram_rate
+        self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+        self.cfg.spectrogram_mode = default_cfg.spectrogram_mode
+        self.spectrogram_scale_mode = "Auto (5-95%)"
+        self.spectrogram_cmap = "viridis"
+        self.spectrogram_min_db = -120.0
+        self.spectrogram_max_db = 0.0
+        self.spectrogram_floor_db = None
         self.help_overlay_action.setChecked(self.help_overlays_enabled)
         self.trace_legend_action.setChecked(self.trace_legend_enabled)
         self.spectrogram_action.setChecked(self.spectrogram_enabled)
@@ -1997,13 +2266,26 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_rate = float(value)
         except ValueError:
             self.spectrogram_rate = 15.0
+        self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+        self.spectrogram_buffer = None
+        self.spectrogram_perf_label.setVisible(False)
 
     def on_spectrogram_depth(self, value: str):
         try:
-            self.spectrogram_rows = int(value)
+            self.spectrogram_span_s = float(value)
         except ValueError:
-            self.spectrogram_rows = 200
+            self.spectrogram_span_s = max(1.0, self.spectrogram_rows / max(self.spectrogram_rate, 1e-3))
+        self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
         self.spectrogram_buffer = None
+
+    def on_spectrogram_mode(self, value: str):
+        self._set_cfg(spectrogram_mode=value)
+
+    def on_spectrogram_scale_mode(self, value: str):
+        self.spectrogram_scale_mode = value
+        if value == "Fixed floor":
+            self.spectrogram_floor_db = None
+        self._update_spectrogram_scale_controls()
 
     def on_spectrogram_cmap(self, value: str):
         self.spectrogram_cmap = value
@@ -2022,6 +2304,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def _update_spectrogram_colormap(self) -> None:
         cmap = pg.colormap.get(self.spectrogram_cmap)
         self.spectrogram_image.setLookupTable(cmap.getLookupTable(0.0, 1.0, 256))
+
+    def _update_spectrogram_scale_controls(self) -> None:
+        manual = self.spectrogram_scale_mode == "Manual (Expert)"
+        self.spectrogram_min_edit.setEnabled(manual and self.spectrogram_enabled)
+        self.spectrogram_max_edit.setEnabled(manual and self.spectrogram_enabled)
 
     def zoom_span_at(self, center_hz: float, factor: float) -> None:
         # Zoom span around cursor and enqueue SDR changes safely.
@@ -2357,15 +2644,20 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_plot.hide()
         # Disable/enable controls to match visibility.
         for widget in (
+            self.spectrogram_mode_cb,
             self.spectrogram_speed_cb,
             self.spectrogram_depth_cb,
+            self.spectrogram_scale_cb,
             self.spectrogram_cmap_cb,
             self.spectrogram_min_edit,
             self.spectrogram_max_edit,
         ):
             widget.setEnabled(self.spectrogram_enabled)
+        if not self.spectrogram_enabled:
+            self.spectrogram_perf_label.setVisible(False)
+        self._update_spectrogram_scale_controls()
 
-    def _update_spectrogram(self, freqs: np.ndarray, display: np.ndarray, timestamp: float) -> None:
+    def _update_spectrogram(self, freqs: np.ndarray, spec_db: np.ndarray, timestamp: float) -> None:
         if not self.spectrogram_enabled:
             return
         if self.spectrogram_rate <= 0:
@@ -2373,22 +2665,58 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if timestamp - self.spectrogram_last_ts < 1.0 / float(self.spectrogram_rate):
             return
         # Use decimated trace for performance and roll a fixed-size buffer.
+        actual_dt = timestamp - self.spectrogram_last_ts if self.spectrogram_last_ts else 0.0
         self.spectrogram_last_ts = timestamp
-        dec_freqs, dec_display = self._decimate_for_display(freqs, display)
+        dec_freqs, dec_spec = self._decimate_for_display(freqs, spec_db)
 
         rows = int(self.spectrogram_rows)
-        cols = len(dec_display)
+        cols = len(dec_spec)
         if cols == 0 or rows <= 0:
             return
         if self.spectrogram_buffer is None or self.spectrogram_buffer.shape != (rows, cols):
             self.spectrogram_buffer = np.full((rows, cols), self.spectrogram_min_db, dtype=np.float32)
+            self.spectrogram_floor_db = None
         self.spectrogram_buffer = np.roll(self.spectrogram_buffer, -1, axis=0)
-        self.spectrogram_buffer[-1, :] = dec_display.astype(np.float32)
+        self.spectrogram_buffer[-1, :] = dec_spec.astype(np.float32)
+
+        if self.spectrogram_scale_mode == "Manual (Expert)":
+            levels = (self.spectrogram_min_db, self.spectrogram_max_db)
+        else:
+            if self.spectrogram_buffer.size:
+                low, high = np.percentile(self.spectrogram_buffer, [5, 95])
+            else:
+                low, high = self.spectrogram_min_db, self.spectrogram_max_db
+            if self.spectrogram_scale_mode == "Fixed floor":
+                if self.spectrogram_floor_db is None:
+                    self.spectrogram_floor_db = float(low)
+                low = self.spectrogram_floor_db
+            levels = (float(low), float(high))
+        if levels[1] <= levels[0]:
+            levels = (levels[0] - 1.0, levels[0] + 1.0)
+
+        if actual_dt > 0.0:
+            target_dt = 1.0 / float(self.spectrogram_rate)
+            if actual_dt > target_dt * 1.5:
+                new_rate = max(5.0, self.spectrogram_rate * 0.8)
+                adjusted = self._set_combo_to_nearest(self.spectrogram_speed_cb, new_rate)
+                if adjusted != self.spectrogram_rate:
+                    self.spectrogram_rate = adjusted
+                    self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+                    self.spectrogram_buffer = None
+                    self.spectrogram_perf_label.setVisible(True)
+                    return
+                self.spectrogram_perf_label.setVisible(True)
 
         self.spectrogram_image.setImage(self.spectrogram_buffer, autoLevels=False)
-        self.spectrogram_image.setLevels((self.spectrogram_min_db, self.spectrogram_max_db))
+        self.spectrogram_image.setLevels(levels)
         if len(dec_freqs) >= 2:
-            rect = QtCore.QRectF(dec_freqs[0], 0, dec_freqs[-1] - dec_freqs[0], rows)
+            time_span = rows / max(self.spectrogram_rate, 1e-3)
+            rect = QtCore.QRectF(
+                dec_freqs[0],
+                -time_span,
+                dec_freqs[-1] - dec_freqs[0],
+                time_span,
+            )
             self.spectrogram_image.setRect(rect)
             self.spectrogram_plot.setXRange(dec_freqs[0], dec_freqs[-1], padding=0.0)
 
@@ -2420,11 +2748,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         rbw = payload["rbw"]
         timestamp = payload["timestamp"]
         freqs = payload["freqs"]
+        spectrogram_db = payload.get("spectrogram_db")
 
         # Apply VBW smoothing in linear power.
         power = self._apply_vbw(power, rbw, timestamp)
         live_display = self._power_to_display(power, rbw_hz=rbw)
-        self._update_spectrogram(freqs, live_display, timestamp)
+        if spectrogram_db is not None:
+            self._update_spectrogram(freqs, spectrogram_db, timestamp)
 
         trace1_mode = self.cfg.trace_type
         if trace1_mode == "Average":
@@ -2490,13 +2820,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         # Update status readout with current instrument state.
         self.cfg.rbw_hz = rbw
+        self.enbw_label.setText(f"{payload['enbw_bins']:.2f}")
         self.status.setText(
             " ".join(
                 [
                     f"LO {int(payload['lo'])}",
                     f"SR {int(payload['fs'])}",
                     f"RBW {rbw:.1f} Hz",
-                    f"ENBW {payload['enbw_bins']:.2f}",
                     f"FFT {self.cfg.fft_size}",
                     f"Gain {payload['gain_db']} dB",
                     f"RF BW {int(payload['rf_bw'])}",
