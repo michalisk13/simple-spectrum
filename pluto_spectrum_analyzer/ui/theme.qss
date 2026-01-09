@@ -48,10 +48,11 @@ QToolButton#navHeader {
   background-color: transparent;
   border: none;
   border-radius: 8px;
-  padding: 8px 10px;
+  padding: 6px 8px;
   text-align: left;
   font-size: 13px;
-  min-height: 32px;
+  min-height: 28px;
+  border-left: 3px solid transparent;
 }
 
 QToolButton#navHeader:hover {
@@ -59,13 +60,20 @@ QToolButton#navHeader:hover {
 }
 
 QToolButton#navHeader[expanded="true"] {
-  background-color: #1F6AA5;
-  color: #FFFFFF;
+  background-color: #333337;
+  color: #E6E6E6;
+  border-left: 3px solid #1F6AA5;
 }
 
 QFrame#navContent {
   background-color: transparent;
   border: none;
+}
+
+QFrame#navDivider {
+  background-color: #2A2A2D;
+  margin-left: 8px;
+  margin-right: 8px;
 }
 
 QLabel {

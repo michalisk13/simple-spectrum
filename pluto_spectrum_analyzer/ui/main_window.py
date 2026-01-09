@@ -270,14 +270,17 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.peak_table_indices: list[int] = []
         self.plot_splitter_sizes = self._state_int_list("plot_splitter_sizes")
         self.spectrogram_splitter_sizes = self._state_int_list("spectrogram_splitter_sizes")
+        self.settings_splitter_sizes = self._state_int_list("settings_splitter_sizes")
         self._cached_plot_splitter_sizes: Optional[list[int]] = None
         self._cached_spectrogram_splitter_sizes: Optional[list[int]] = None
+        self._cached_settings_splitter_sizes: Optional[list[int]] = None
 
         self._build_ui()
         self._wire_events()
         # Default splitter ratios (3:1 plot-to-spectrogram, 4:1 plot-to-LUT).
         self.default_plot_splitter_sizes = [3, 1]
         self.default_spectrogram_splitter_sizes = [4, 1]
+        self.default_settings_splitter_sizes = [380, 900]
 
         self._apply_initial_state()
         self._update_connection_ui(connected=False)
@@ -317,7 +320,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.control_panel.setWidgetResizable(True)
         self.control_panel.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         self.control_panel.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.control_panel.setFixedWidth(320)
+        self.control_panel.setMinimumWidth(340)
         self.control_panel.setObjectName("navPanel")
         self.control_panel.setViewportMargins(6, 6, 6, 6)
         splitter.addWidget(self.control_panel)
@@ -363,6 +366,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         self.nav_sections: list[dict[str, QtWidgets.QWidget]] = []
         self._nav_expand_order: list[QtWidgets.QToolButton] = []
+        self.nav_dividers: list[QtWidgets.QFrame] = []
         self.nav_container = QtWidgets.QVBoxLayout()
         self.nav_container.setSpacing(8)
         control_layout.addLayout(self.nav_container)
@@ -396,7 +400,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         rf_layout.addWidget(QtWidgets.QLabel("Center"), 0, 0)
         self.freq_edit = QtWidgets.QLineEdit()
-        self.freq_edit.setFixedWidth(90)
+        self.freq_edit.setMinimumWidth(90)
         self.freq_edit.setAlignment(QtCore.Qt.AlignRight)
         center_btn_size = self.freq_edit.sizeHint().height()
 
@@ -428,7 +432,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.freq_unit = QtWidgets.QComboBox()
         self.freq_unit.addItems(["Hz", "kHz", "MHz", "GHz"])
         self.freq_unit.setCurrentText("MHz")
-        self.freq_unit.setFixedWidth(70)
+        self.freq_unit.setMinimumWidth(70)
         rf_layout.addWidget(self.freq_unit, 0, 2)
 
         self.set_btn = QtWidgets.QPushButton("Set")
@@ -436,7 +440,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         rf_layout.addWidget(QtWidgets.QLabel("Span"), 1, 0)
         self.span_edit = QtWidgets.QLineEdit()
-        self.span_edit.setFixedWidth(90)
+        self.span_edit.setMinimumWidth(90)
         self.span_edit.setAlignment(QtCore.Qt.AlignRight)
 
         self.span_minus_btn = QtWidgets.QToolButton()
@@ -467,7 +471,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.span_unit = QtWidgets.QComboBox()
         self.span_unit.addItems(["Hz", "kHz", "MHz"])
         self.span_unit.setCurrentText("MHz")
-        self.span_unit.setFixedWidth(70)
+        self.span_unit.setMinimumWidth(70)
         rf_layout.addWidget(self.span_unit, 1, 2)
 
         self.apply_span_btn = QtWidgets.QPushButton("Apply")
@@ -475,7 +479,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         rf_layout.addWidget(QtWidgets.QLabel("RF BW"), 2, 0)
         self.rfbw_edit = QtWidgets.QLineEdit()
-        self.rfbw_edit.setFixedWidth(90)
+        self.rfbw_edit.setMinimumWidth(90)
         self.rfbw_edit.setAlignment(QtCore.Qt.AlignRight)
 
         self.rfbw_minus_btn = QtWidgets.QToolButton()
@@ -506,7 +510,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.rfbw_unit = QtWidgets.QComboBox()
         self.rfbw_unit.addItems(["Hz", "kHz", "MHz"])
         self.rfbw_unit.setCurrentText("MHz")
-        self.rfbw_unit.setFixedWidth(70)
+        self.rfbw_unit.setMinimumWidth(70)
         rf_layout.addWidget(self.rfbw_unit, 2, 2)
 
         self.apply_rfbw_btn = QtWidgets.QPushButton("Set")
@@ -519,7 +523,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         rf_layout.addWidget(QtWidgets.QLabel("Gain dB"), 3, 2)
         self.gain_edit = QtWidgets.QLineEdit()
-        self.gain_edit.setFixedWidth(60)
+        self.gain_edit.setMinimumWidth(60)
         self.gain_edit.setAlignment(QtCore.Qt.AlignRight)
         rf_layout.addWidget(self.gain_edit, 3, 3)
 
@@ -550,7 +554,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         sweep_layout.addWidget(self.vbw_mode_cb, 1, 1)
 
         self.vbw_edit = QtWidgets.QLineEdit()
-        self.vbw_edit.setFixedWidth(80)
+        self.vbw_edit.setMinimumWidth(80)
         self.vbw_edit.setAlignment(QtCore.Qt.AlignRight)
         sweep_layout.addWidget(self.vbw_edit, 1, 2)
 
@@ -566,7 +570,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         sweep_layout.addWidget(QtWidgets.QLabel("Update rate (Hz)"), 3, 2)
         self.update_hz_edit = QtWidgets.QLineEdit()
-        self.update_hz_edit.setFixedWidth(60)
+        self.update_hz_edit.setMinimumWidth(60)
         self.update_hz_edit.setAlignment(QtCore.Qt.AlignRight)
         sweep_layout.addWidget(self.update_hz_edit, 3, 3)
 
@@ -595,7 +599,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         trace_layout.addWidget(QtWidgets.QLabel("Avg count"), 2, 0)
         self.avg_edit = QtWidgets.QLineEdit()
-        self.avg_edit.setFixedWidth(60)
+        self.avg_edit.setMinimumWidth(60)
         self.avg_edit.setAlignment(QtCore.Qt.AlignRight)
         trace_layout.addWidget(self.avg_edit, 2, 1)
 
@@ -611,13 +615,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         trace_layout.addWidget(QtWidgets.QLabel("Ref level"), 3, 2)
         self.ref_edit = QtWidgets.QLineEdit()
-        self.ref_edit.setFixedWidth(70)
+        self.ref_edit.setMinimumWidth(70)
         self.ref_edit.setAlignment(QtCore.Qt.AlignRight)
         trace_layout.addWidget(self.ref_edit, 3, 3)
 
         trace_layout.addWidget(QtWidgets.QLabel("Scale (dB/div)"), 4, 0)
         self.scale_edit = QtWidgets.QLineEdit()
-        self.scale_edit.setFixedWidth(60)
+        self.scale_edit.setMinimumWidth(60)
         self.scale_edit.setAlignment(QtCore.Qt.AlignRight)
         trace_layout.addWidget(self.scale_edit, 4, 1)
 
@@ -736,10 +740,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         spectrogram_layout.addWidget(self.spectrogram_scale_cb, 4, 1)
 
         self.spectrogram_min_edit = QtWidgets.QLineEdit(f"{self.spectrogram_min_db:.0f}")
-        self.spectrogram_min_edit.setFixedWidth(60)
+        self.spectrogram_min_edit.setMinimumWidth(60)
         self.spectrogram_min_edit.setAlignment(QtCore.Qt.AlignRight)
         self.spectrogram_max_edit = QtWidgets.QLineEdit(f"{self.spectrogram_max_db:.0f}")
-        self.spectrogram_max_edit.setFixedWidth(60)
+        self.spectrogram_max_edit.setMinimumWidth(60)
         self.spectrogram_max_edit.setAlignment(QtCore.Qt.AlignRight)
         spectrogram_layout.addWidget(QtWidgets.QLabel("dB min"), 5, 0)
         spectrogram_layout.addWidget(self.spectrogram_min_edit, 5, 1)
@@ -758,19 +762,19 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         advanced_layout.addWidget(QtWidgets.QLabel("Overlap"), 0, 0)
         self.overlap_edit = QtWidgets.QLineEdit()
-        self.overlap_edit.setFixedWidth(60)
+        self.overlap_edit.setMinimumWidth(60)
         self.overlap_edit.setAlignment(QtCore.Qt.AlignRight)
         advanced_layout.addWidget(self.overlap_edit, 0, 1)
 
         advanced_layout.addWidget(QtWidgets.QLabel("Buffer factor"), 1, 0)
         self.buffer_factor_edit = QtWidgets.QLineEdit()
-        self.buffer_factor_edit.setFixedWidth(60)
+        self.buffer_factor_edit.setMinimumWidth(60)
         self.buffer_factor_edit.setAlignment(QtCore.Qt.AlignRight)
         advanced_layout.addWidget(self.buffer_factor_edit, 1, 1)
 
         advanced_layout.addWidget(QtWidgets.QLabel("DC blank bins"), 2, 0)
         self.dc_blank_edit = QtWidgets.QLineEdit()
-        self.dc_blank_edit.setFixedWidth(50)
+        self.dc_blank_edit.setMinimumWidth(50)
         self.dc_blank_edit.setAlignment(QtCore.Qt.AlignRight)
         advanced_layout.addWidget(self.dc_blank_edit, 2, 1)
 
@@ -1054,6 +1058,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         section_layout.addWidget(header)
         section_layout.addWidget(content_frame)
         self.nav_container.addWidget(section_frame)
+        divider = QtWidgets.QFrame()
+        divider.setObjectName("navDivider")
+        divider.setFixedHeight(1)
+        self.nav_container.addWidget(divider)
+        self.nav_dividers.append(divider)
         self._update_nav_header_text(header)
 
         header.toggled.connect(
@@ -1122,6 +1131,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             )
             if idx < 2:
                 self._nav_expand_order.append(section["button"])
+        if self.nav_dividers:
+            self.nav_dividers[-1].hide()
 
     def _apply_plot_theme(self) -> None:
         plot_bg = "#0F0F10"
@@ -1202,16 +1213,19 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.control_panel.show()
             self.show_settings_btn.hide()
             if restore:
-                if self._settings_panel_width is None:
-                    sizes = self.settings_splitter.sizes()
-                    self._settings_panel_width = max(260, sizes[0])
-                total = sum(self.settings_splitter.sizes()) or 1
-                left = min(self._settings_panel_width, total - 200)
-                self.settings_splitter.setSizes([left, total - left])
+                if self._cached_settings_splitter_sizes:
+                    self.settings_splitter.setSizes(self._cached_settings_splitter_sizes)
+                else:
+                    total = sum(self.settings_splitter.sizes()) or 1
+                    default_left = min(self.default_settings_splitter_sizes[0], total - 220)
+                    self.settings_splitter.setSizes([default_left, total - default_left])
+                    self._cached_settings_splitter_sizes = [default_left, total - default_left]
         else:
             sizes = self.settings_splitter.sizes()
             if sizes:
                 self._settings_panel_width = max(200, sizes[0])
+                if sizes[0] > 0:
+                    self._cached_settings_splitter_sizes = list(sizes)
             self.control_panel.hide()
             self.show_settings_btn.show()
             self.settings_splitter.setSizes([0, max(1, sizes[1] if sizes else 1)])
@@ -1615,7 +1629,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._clear_trace_state()
         self._update_trace_legend()
         self._apply_spectrogram_visibility()
-        self._apply_settings_panel_visibility(self.settings_panel_visible, restore=False)
+        if self.settings_splitter_sizes:
+            self._cached_settings_splitter_sizes = list(self.settings_splitter_sizes)
+        self._apply_settings_panel_visibility(self.settings_panel_visible, restore=True)
         self._update_status_readout()
         QtCore.QTimer.singleShot(0, self._restore_splitter_sizes)
 
@@ -1673,6 +1689,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         spectrogram_sizes = (
             self._cached_spectrogram_splitter_sizes or self.spectrogram_splitter.sizes()
         )
+        settings_sizes = (
+            self._cached_settings_splitter_sizes or self.settings_splitter.sizes()
+        )
         data = {
             "uri": self.cfg.uri,
             "recent_uris": self.recent_uris,
@@ -1718,6 +1737,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "plot_splitter_sizes": plot_sizes,
             "spectrogram_splitter_sizes": spectrogram_sizes,
             "settings_panel_visible": self.settings_panel_visible,
+            "settings_splitter_sizes": settings_sizes,
         }
         save_state(data)
 
@@ -2571,8 +2591,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_floor_db = None
         self.plot_splitter_sizes = None
         self.spectrogram_splitter_sizes = None
+        self.settings_splitter_sizes = None
         self._cached_plot_splitter_sizes = None
         self._cached_spectrogram_splitter_sizes = None
+        self._cached_settings_splitter_sizes = None
         self.help_overlay_action.setChecked(self.help_overlays_enabled)
         self.trace_legend_action.setChecked(self.trace_legend_enabled)
         self.control_panel_action.setChecked(self.settings_panel_visible)
@@ -2690,6 +2712,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             sizes = self.settings_splitter.sizes()
             if sizes:
                 self._settings_panel_width = max(200, sizes[0])
+                self._cached_settings_splitter_sizes = list(sizes)
 
     def on_reset_split_layout(self):
         self.plot_splitter.setSizes(self.default_plot_splitter_sizes)
