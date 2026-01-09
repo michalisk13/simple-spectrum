@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Optional
 
 import adi
+import numpy as np
 
 from pluto_spectrum_analyzer.config import SpectrumConfig
 
@@ -115,6 +116,70 @@ class PlutoSdr:
     @property
     def gain_db(self) -> int:
         return int(self.dev.rx_hardwaregain_chan0)
+
+
+class NullSdr:
+    """Fallback SDR that returns silence when hardware is unavailable."""
+
+    def __init__(self, cfg: SpectrumConfig):
+        self.cfg = cfg
+
+    def close(self) -> None:
+        return None
+
+    def apply_common(self) -> None:
+        return None
+
+    def set_center_hz(self, hz: int) -> None:
+        hz = int(hz)
+        if hz < 325_000_000:
+            hz = 325_000_000
+        if hz > 3_800_000_000:
+            hz = 3_800_000_000
+        self.cfg.center_hz = hz
+
+    def set_span_hz(self, span_hz: int) -> None:
+        span_hz = int(span_hz)
+        self.cfg.sample_rate_hz = span_hz
+        self.cfg.rf_bw_hz = min(int(span_hz), int(self.cfg.rf_bw_hz))
+
+    def set_fft_size(self, n: int, buffer_factor: int) -> None:
+        self.cfg.fft_size = int(n)
+        self.cfg.buffer_factor = int(buffer_factor)
+
+    def set_gain_mode(self, mode: str) -> None:
+        self.cfg.gain_mode = mode
+
+    def set_gain_db(self, gain_db: int) -> None:
+        gain_db = int(gain_db)
+        if gain_db < 0:
+            gain_db = 0
+        if gain_db > 70:
+            gain_db = 70
+        self.cfg.gain_db = gain_db
+
+    def set_rf_bw(self, hz: int) -> None:
+        self.cfg.rf_bw_hz = int(hz)
+
+    def read_rx(self):
+        n = int(self.cfg.fft_size) * int(self.cfg.buffer_factor)
+        return np.zeros(n, dtype=np.complex64)
+
+    @property
+    def sample_rate(self) -> float:
+        return float(self.cfg.sample_rate_hz)
+
+    @property
+    def lo(self) -> float:
+        return float(self.cfg.center_hz)
+
+    @property
+    def rf_bw(self) -> float:
+        return float(self.cfg.rf_bw_hz)
+
+    @property
+    def gain_db(self) -> int:
+        return int(self.cfg.gain_db)
 
 
 def test_pluto_connection(uri: str) -> tuple[bool, Optional[str]]:

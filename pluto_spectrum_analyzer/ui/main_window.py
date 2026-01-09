@@ -23,7 +23,7 @@ from pluto_spectrum_analyzer.persistence import (
     save_state,
     update_recent_uris,
 )
-from pluto_spectrum_analyzer.sdr.pluto import PlutoSdr
+from pluto_spectrum_analyzer.sdr.pluto import NullSdr, PlutoSdr
 from pluto_spectrum_analyzer.ui.dialogs import (
     AboutDialog,
     CalibrationDialog,
@@ -159,7 +159,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         pg.setConfigOption("background", (10, 10, 10))
         pg.setConfigOption("foreground", "w")
 
-        self.sdr = PlutoSdr(cfg)
+        self._pending_sdr_warning: Optional[str] = None
+        try:
+            self.sdr = PlutoSdr(cfg)
+        except Exception as exc:  # pragma: no cover - hardware errors vary
+            self.sdr = NullSdr(cfg)
+            self._pending_sdr_warning = str(exc)
         self.proc = SpectrumProcessor(cfg.fft_size, cfg.window)
         self.hover = HoverReadout()
 
@@ -226,6 +231,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         # Default splitter ratios (3:1 plot-to-spectrogram, 4:1 plot-to-LUT).
         self.default_plot_splitter_sizes = [3, 1]
         self.default_spectrogram_splitter_sizes = [4, 1]
+
+        if self._pending_sdr_warning:
+            self._notify_missing_sdr(self._pending_sdr_warning)
 
         self.worker = SpectrumWorker(self.sdr, self.proc, cfg)
         self.worker.new_data.connect(self.on_new_data)
@@ -1073,6 +1081,17 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._register_help(
             self.calibration_btn,
             "Calibration tools for dBFS to dBm conversion and external gain.",
+        )
+
+    def _notify_missing_sdr(self, error: str) -> None:
+        message = (
+            "No SDR detected. Open Settings → SDR Settings... to configure your device."
+        )
+        self.status.setText(message)
+        QtWidgets.QMessageBox.warning(
+            self,
+            "SDR Not Connected",
+            f"{message}\n\nDetails: {error}",
         )
 
     def eventFilter(self, obj, event):
