@@ -91,10 +91,14 @@ class SdrSettingsDialog(QtWidgets.QDialog):
         parent: QtWidgets.QWidget,
         current_uri: str,
         recent_uris: list[str],
+        auto_connect: bool,
+        connect_cb: Optional[Callable[[str], bool]] = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("SDR Settings")
         self._uri = current_uri
+        self._auto_connect = auto_connect
+        self._connect_cb = connect_cb
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
@@ -111,21 +115,34 @@ class SdrSettingsDialog(QtWidgets.QDialog):
 
         layout.addLayout(form)
 
+        self.auto_connect_cb = QtWidgets.QCheckBox("Auto-connect on startup")
+        self.auto_connect_cb.setChecked(auto_connect)
+        layout.addWidget(self.auto_connect_cb)
+
         self.test_btn = QtWidgets.QPushButton("Test Connection")
         layout.addWidget(self.test_btn)
 
         buttons = QtWidgets.QDialogButtonBox(
             QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel
         )
+        self.save_connect_btn = QtWidgets.QPushButton("Save and Connect")
+        buttons.addButton(self.save_connect_btn, QtWidgets.QDialogButtonBox.ActionRole)
         layout.addWidget(buttons)
 
         self.test_btn.clicked.connect(self._test_connection)
         buttons.accepted.connect(self._on_save)
         buttons.rejected.connect(self.reject)
+        self.save_connect_btn.clicked.connect(self._on_save_and_connect)
+        if self._connect_cb is None:
+            self.save_connect_btn.setEnabled(False)
 
     @property
     def uri(self) -> str:
         return self._uri
+
+    @property
+    def auto_connect(self) -> bool:
+        return self._auto_connect
 
     def _test_connection(self) -> None:
         uri = self.uri_edit.text().strip()
@@ -141,7 +158,19 @@ class SdrSettingsDialog(QtWidgets.QDialog):
 
     def _on_save(self) -> None:
         self._uri = self.uri_edit.text().strip()
+        self._auto_connect = self.auto_connect_cb.isChecked()
         self.accept()
+
+    def _on_save_and_connect(self) -> None:
+        if self._connect_cb is None:
+            return
+        self._uri = self.uri_edit.text().strip()
+        self._auto_connect = self.auto_connect_cb.isChecked()
+        if not self._uri:
+            QtWidgets.QMessageBox.warning(self, "Connection", "SDR URI cannot be empty.")
+            return
+        if self._connect_cb(self._uri):
+            self.accept()
 
 
 class DeviceInfoDialog(QtWidgets.QDialog):
