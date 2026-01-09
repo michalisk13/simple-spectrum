@@ -27,7 +27,6 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pyqtgraph as pg
 from pyqtgraph import SignalProxy
-from pyqtgraph.exporters import ImageExporter
 from pyqtgraph.Qt import QtCore, QtWidgets
 import adi
 
@@ -744,6 +743,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_buffer: Optional[np.ndarray] = None
         self.spectrogram_last_ts: float = 0.0
         self.peak_table_indices: list[int] = []
+        self.plot_splitter_sizes = self.state.get("plot_splitter_sizes")
+        self.spectrogram_splitter_sizes = self.state.get("spectrogram_splitter_sizes")
+        self._cached_plot_splitter_sizes: Optional[list[int]] = None
+        self._cached_spectrogram_splitter_sizes: Optional[list[int]] = None
 
         self._build_ui()
         self._wire_events()
@@ -1140,18 +1143,24 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.status.setStyleSheet("QLabel { padding: 4px; font-family: monospace; }")
 
         # Main plot + optional spectrogram waterfall below.
+        self.plot_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
+        plot_layout.addWidget(self.plot_splitter, 1)
+
         self.plot = pg.PlotWidget(viewBox=SpectrumViewBox(self))
         self.plot.setLabel("bottom", "Frequency", units="Hz")
         self.plot.setLabel("left", "Magnitude", units="dBFS")
         self.plot.showGrid(x=True, y=True, alpha=0.2)
         self.plot.setMouseEnabled(x=True, y=False)
         self.plot.setClipToView(True)
-        plot_layout.addWidget(self.plot, 3)
+        self.plot_splitter.addWidget(self.plot)
 
-        spectro_row = QtWidgets.QHBoxLayout()
+        self.spectrogram_container = QtWidgets.QWidget()
+        spectrogram_layout = QtWidgets.QVBoxLayout(self.spectrogram_container)
+        spectrogram_layout.setContentsMargins(0, 0, 0, 0)
+        self.spectrogram_splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        spectrogram_layout.addWidget(self.spectrogram_splitter, 1)
+
         self.spectrogram_plot = pg.PlotWidget()
-        # Make time scroll upward visually like a classic waterfall.
-        self.spectrogram_plot.invertY(True)
         self.spectrogram_plot.setLabel("left", "Time", units="s")
         self.spectrogram_plot.setLabel("bottom", "Frequency", units="Hz")
         self.spectrogram_plot.showGrid(x=True, y=False, alpha=0.2)
@@ -1159,7 +1168,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_plot.setXLink(self.plot)
         self.spectrogram_image = pg.ImageItem()
         self.spectrogram_plot.addItem(self.spectrogram_image)
-        spectro_row.addWidget(self.spectrogram_plot, 1)
+        self.spectrogram_splitter.addWidget(self.spectrogram_plot)
+
         # Right side histogram + LUT control for spectrogram (PySDR style).
         self.spectro_lut = pg.HistogramLUTWidget()
         self.spectro_lut.setImageItem(self.spectrogram_image)
@@ -1167,13 +1177,17 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectro_lut.item.gradient.loadPreset("viridis")
         except Exception:
             pass
-        self.spectro_lut.setMaximumWidth(120)
-        spectro_row.addWidget(self.spectro_lut, 0)
-        plot_layout.addLayout(spectro_row, 1)
+        self.spectro_lut.setMaximumWidth(140)
+        self.spectrogram_splitter.addWidget(self.spectro_lut)
+        self.spectrogram_splitter.setStretchFactor(0, 1)
+        self.spectrogram_splitter.setStretchFactor(1, 0)
+
+        self.plot_splitter.addWidget(self.spectrogram_container)
+        self.plot_splitter.setStretchFactor(0, 3)
+        self.plot_splitter.setStretchFactor(1, 1)
         self._update_spectrogram_colormap()
         if not self.spectrogram_enabled:
-            self.spectrogram_plot.hide()
-            self.spectro_lut.hide()
+            self.spectrogram_container.hide()
         plot_layout.addWidget(self.status)
 
         self.curve_trace1 = self.plot.plot(pen=pg.mkPen("w", width=1))
@@ -1564,6 +1578,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_cmap_cb.currentTextChanged.connect(self.on_spectrogram_cmap)
         self.spectrogram_min_edit.editingFinished.connect(self.on_spectrogram_range)
         self.spectrogram_max_edit.editingFinished.connect(self.on_spectrogram_range)
+        self.spectrogram_auto_range_cb.toggled.connect(self.on_spectrogram_auto_range)
 
     def _apply_initial_state(self):
         # Restore UI first.
@@ -1613,6 +1628,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_depth_cb, self.spectrogram_span_s
         )
         self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+        self._apply_spectrogram_rate_limit()
         self._update_spectrogram_scale_controls()
 
         self.run_stop_btn.setText("Stop" if self.run_state else "Run")
@@ -1647,6 +1663,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._clear_trace_state()
         self._update_trace_legend()
         self._apply_spectrogram_visibility()
+        QtCore.QTimer.singleShot(0, self._restore_splitter_sizes)
 
     def _update_amp_modes(self):
         current = self.amp_mode_cb.currentText() if hasattr(self, "amp_mode_cb") else None
@@ -1686,6 +1703,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             return {}
 
     def _save_state(self) -> None:
+        plot_sizes = self._cached_plot_splitter_sizes or self.plot_splitter.sizes()
+        spectrogram_sizes = (
+            self._cached_spectrogram_splitter_sizes or self.spectrogram_splitter.sizes()
+        )
         data = {
             "center_hz": self.cfg.center_hz,
             "span_hz": self.cfg.sample_rate_hz,
@@ -1725,6 +1746,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "spectrogram_cmap": self.spectrogram_cmap,
             "spectrogram_min_db": self.spectrogram_min_db,
             "spectrogram_max_db": self.spectrogram_max_db,
+            "plot_splitter_sizes": plot_sizes,
+            "spectrogram_splitter_sizes": spectrogram_sizes,
         }
         with open(STATE_PATH, "w", encoding="utf-8") as handle:
             json.dump(data, handle, indent=2)
@@ -1907,6 +1930,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.update_hz_edit.setText(f"{hz:.1f}")
         update_ms = int(max(50, min(2000, 1000.0 / hz)))
         self._set_cfg(update_ms=update_ms)
+        self._apply_spectrogram_rate_limit()
 
     def on_trace1_mode_changed(self, mode: str):
         self._set_cfg(trace_type=mode)
@@ -2232,6 +2256,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_min_db = -120.0
         self.spectrogram_max_db = 0.0
         self.spectrogram_floor_db = None
+        self.plot_splitter_sizes = None
+        self.spectrogram_splitter_sizes = None
+        self._cached_plot_splitter_sizes = None
+        self._cached_spectrogram_splitter_sizes = None
         self.help_overlay_action.setChecked(self.help_overlays_enabled)
         self.trace_legend_action.setChecked(self.trace_legend_enabled)
         self.spectrogram_action.setChecked(self.spectrogram_enabled)
@@ -2265,9 +2293,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         )
         if not path:
             return
-        exporter = ImageExporter(self.plot)
-        exporter.export(path)
-        self.status.setText(f"Saved screenshot to {path}")
+        pixmap = self.grab()
+        if pixmap.save(path, "PNG"):
+            self.status.setText(f"Saved screenshot to {path}")
+        else:
+            self.status.setText("Failed to save screenshot")
 
     def on_toggle_help_overlays(self, checked: bool):
         self.help_overlays_enabled = checked
@@ -2281,6 +2311,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def on_toggle_spectrogram(self, checked: bool):
         self.spectrogram_enabled = checked
         self._apply_spectrogram_visibility()
+        self._apply_spectrogram_rate_limit()
 
     def on_toggle_spectrogram_lut(self, checked: bool):
         self.spectrogram_lut_enabled = checked
@@ -2291,9 +2322,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_rate = float(value)
         except ValueError:
             self.spectrogram_rate = 15.0
-        self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+        self._apply_spectrogram_rate_limit()
         self.spectrogram_buffer = None
-        self.spectrogram_perf_label.setVisible(False)
 
     def on_spectrogram_depth(self, value: str):
         try:
@@ -2326,14 +2356,32 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         except ValueError:
             self.spectrogram_max_db = 0.0
 
+    def on_spectrogram_auto_range(self, checked: bool):
+        self._update_spectrogram_scale_controls()
+
     def _update_spectrogram_colormap(self) -> None:
         cmap = pg.colormap.get(self.spectrogram_cmap)
         self.spectrogram_image.setLookupTable(cmap.getLookupTable(0.0, 1.0, 256))
 
     def _update_spectrogram_scale_controls(self) -> None:
         manual = self.spectrogram_scale_mode == "Manual (Expert)"
-        self.spectrogram_min_edit.setEnabled(manual and self.spectrogram_enabled)
-        self.spectrogram_max_edit.setEnabled(manual and self.spectrogram_enabled)
+        auto_range = self.spectrogram_auto_range_cb.isChecked()
+        enabled = self.spectrogram_enabled and manual and not auto_range
+        self.spectrogram_min_edit.setEnabled(enabled)
+        self.spectrogram_max_edit.setEnabled(enabled)
+
+    def _apply_spectrogram_rate_limit(self) -> None:
+        max_rate = max(0.1, 1000.0 / float(self.cfg.update_ms))
+        if self.spectrogram_rate > max_rate + 1e-3:
+            self.spectrogram_rate = max_rate
+            self.spectrogram_perf_label.setText(f"↓ {max_rate:.1f} max")
+            self.spectrogram_perf_label.setVisible(True)
+        else:
+            self.spectrogram_perf_label.setVisible(False)
+        if not self.spectrogram_enabled:
+            self.spectrogram_perf_label.setVisible(False)
+        self._set_combo_to_nearest(self.spectrogram_speed_cb, min(self.spectrogram_rate, max_rate))
+        self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
 
     def zoom_span_at(self, center_hz: float, factor: float) -> None:
         # Zoom span around cursor and enqueue SDR changes safely.
@@ -2373,6 +2421,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if len(data) < 3:
             return np.array([], dtype=int)
         peaks = np.where((data[1:-1] > data[:-2]) & (data[1:-1] > data[2:]))[0] + 1
+        if len(peaks) == 0:
+            return np.array([], dtype=int)
+        noise_floor = float(np.percentile(data, 50.0))
+        threshold = noise_floor + 6.0
+        peaks = peaks[data[peaks] >= threshold]
         return peaks.astype(int)
 
     def _update_peak_table(self) -> None:
@@ -2421,6 +2474,55 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 out_f.append(seg_f[idx])
                 out_y.append(seg[idx])
         return np.array(out_f), np.array(out_y)
+
+    def _decimate_spectrogram_row(
+        self, freqs: np.ndarray, row: np.ndarray, target_cols: int = 1024
+    ) -> Tuple[np.ndarray, np.ndarray]:
+        n = len(row)
+        if n <= target_cols:
+            return freqs, row
+        edges = np.linspace(0, n, target_cols + 1).astype(int)
+        out_vals = np.empty(target_cols, dtype=np.float32)
+        out_freqs = np.empty(target_cols, dtype=np.float64)
+        for i in range(target_cols):
+            start = edges[i]
+            end = max(edges[i + 1], start + 1)
+            seg = row[start:end]
+            seg_f = freqs[start:end]
+            out_vals[i] = float(np.mean(seg))
+            out_freqs[i] = float(np.mean(seg_f))
+        return out_freqs, out_vals
+
+    @staticmethod
+    def _clamp_spectrogram_levels(min_level: float, max_level: float) -> Tuple[float, float]:
+        clamp_min = -160.0
+        clamp_max = 20.0
+        min_level = max(clamp_min, min(min_level, clamp_max))
+        max_level = max(clamp_min, min(max_level, clamp_max))
+        if min_level >= max_level:
+            max_level = min_level + 1.0
+        return min_level, max_level
+
+    def _compute_spectrogram_levels(self, buf: np.ndarray) -> Tuple[float, float]:
+        if buf.size == 0:
+            return self._clamp_spectrogram_levels(self.spectrogram_min_db, self.spectrogram_max_db)
+        if self.spectrogram_auto_range_cb.isChecked():
+            mean = float(np.mean(buf))
+            sigma = float(np.std(buf))
+            return self._clamp_spectrogram_levels(mean - 2.0 * sigma, mean + 2.0 * sigma)
+
+        mode = self.spectrogram_scale_mode
+        if mode == "Manual (Expert)":
+            return self._clamp_spectrogram_levels(self.spectrogram_min_db, self.spectrogram_max_db)
+        if mode == "Fixed floor":
+            if self.spectrogram_floor_db is None:
+                self.spectrogram_floor_db = float(np.percentile(buf, 5.0))
+            max_level = float(np.percentile(buf, 95.0))
+            return self._clamp_spectrogram_levels(self.spectrogram_floor_db, max_level)
+
+        min_level = float(np.percentile(buf, 5.0))
+        max_level = float(np.percentile(buf, 95.0))
+        return self._clamp_spectrogram_levels(min_level, max_level)
 
     def _apply_rbw_strategy(self):
         fs = float(self.cfg.sample_rate_hz)
@@ -2669,14 +2771,24 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def _apply_spectrogram_visibility(self) -> None:
         if self.spectrogram_enabled:
-            self.spectrogram_plot.show()
+            self.spectrogram_container.show()
+            if self._cached_plot_splitter_sizes:
+                self.plot_splitter.setSizes(self._cached_plot_splitter_sizes)
             if self.spectrogram_lut_enabled:
                 self.spectro_lut.show()
+                if self._cached_spectrogram_splitter_sizes:
+                    self.spectrogram_splitter.setSizes(self._cached_spectrogram_splitter_sizes)
             else:
+                if self.spectro_lut.isVisible():
+                    self._cached_spectrogram_splitter_sizes = self.spectrogram_splitter.sizes()
                 self.spectro_lut.hide()
+                self.spectrogram_splitter.setSizes([1, 0])
         else:
-            self.spectrogram_plot.hide()
+            if self.spectrogram_container.isVisible():
+                self._cached_plot_splitter_sizes = self.plot_splitter.sizes()
+            self.spectrogram_container.hide()
             self.spectro_lut.hide()
+            self.plot_splitter.setSizes([1, 0])
         # Disable/enable controls to match visibility.
         for widget in (
             self.spectrogram_mode_cb,
@@ -2703,7 +2815,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             return
         # Use decimated trace for performance and roll a fixed-size buffer.
         self.spectrogram_last_ts = timestamp
-        dec_freqs, dec_display = self._decimate_for_display(freqs, spec_db)
+        dec_freqs, dec_display = self._decimate_spectrogram_row(freqs, spec_db)
 
         rows = int(self.spectrogram_rows)
         cols = len(dec_display)
@@ -2714,17 +2826,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_buffer[:-1, :] = self.spectrogram_buffer[1:, :]
         self.spectrogram_buffer[-1, :] = dec_display.astype(np.float32)
 
-        # Display directly. Y direction is handled by invertY(True) on the spectrogram plot.
-        self.spectrogram_image.setImage(self.spectrogram_buffer, autoLevels=False)
-
-        if self.spectrogram_auto_range_cb.isChecked():
-            buf = self.spectrogram_buffer
-            sigma = float(np.std(buf))
-            mean = float(np.mean(buf))
-            self.spectrogram_image.setLevels((mean - 2.0 * sigma, mean + 2.0 * sigma))
-        else:
-            # Keep your manual min max fields as the default levels.
-            self.spectrogram_image.setLevels((self.spectrogram_min_db, self.spectrogram_max_db))
+        display_buf = np.flipud(self.spectrogram_buffer)
+        self.spectrogram_image.setImage(display_buf, autoLevels=False)
+        levels = self._compute_spectrogram_levels(self.spectrogram_buffer)
+        self.spectrogram_image.setLevels(levels)
 
         # Use a clean positive time axis in seconds (0 .. time_span).
         time_span = float(rows) / float(self.spectrogram_rate)
@@ -2738,6 +2843,16 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_image.setRect(rect)
             self.spectrogram_plot.setXRange(float(dec_freqs[0]), float(dec_freqs[-1]), padding=0.0)
             self.spectrogram_plot.setYRange(0.0, time_span, padding=0.0)
+
+    def _restore_splitter_sizes(self) -> None:
+        if self.plot_splitter_sizes:
+            self._cached_plot_splitter_sizes = list(self.plot_splitter_sizes)
+            if self.spectrogram_enabled:
+                self.plot_splitter.setSizes(self.plot_splitter_sizes)
+        if self.spectrogram_splitter_sizes:
+            self._cached_spectrogram_splitter_sizes = list(self.spectrogram_splitter_sizes)
+            if self.spectrogram_enabled and self.spectrogram_lut_enabled:
+                self.spectrogram_splitter.setSizes(self.spectrogram_splitter_sizes)
 
     def on_new_data(self, payload: Dict):
         # Store latest payload for the UI refresh timer.
