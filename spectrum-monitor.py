@@ -2561,6 +2561,11 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def _update_markers(self):
         if self.latest_freqs is None or self.latest_display is None:
             return
+        max_idx = len(self.latest_freqs) - 1
+        if self.marker1 is not None and self.marker1 > max_idx:
+            self.marker1 = None
+        if self.marker2 is not None and self.marker2 > max_idx:
+            self.marker2 = None
         info = {"M1": "--", "M2": "--", "Δ": "--", "Noise": "--"}
 
         if self.marker1 is not None:
