@@ -50,7 +50,7 @@ class SpectrumConfig:
     # Center frequency for the LO.
     center_hz: int = 2_437_000_000
 
-    # Sample rate controls instantaneous span. RF BW should be >= sample rate.
+    # Sample rate controls instantaneous span. RF BW should not exceed span.
     sample_rate_hz: int = 20_000_000
     rf_bw_hz: int = 20_000_000
 
@@ -169,9 +169,9 @@ class PlutoSdr:
     def set_span_hz(self, span_hz: int):
         span_hz = int(span_hz)
 
-        # Use span as sample rate, keep RF BW at least as wide.
+        # Use span as sample rate, keep RF BW within span.
         self.cfg.sample_rate_hz = span_hz
-        self.cfg.rf_bw_hz = max(int(span_hz), int(self.cfg.rf_bw_hz))
+        self.cfg.rf_bw_hz = min(int(span_hz), int(self.cfg.rf_bw_hz))
 
         self.dev.sample_rate = span_hz
         self.dev.rx_rf_bandwidth = int(self.cfg.rf_bw_hz)
@@ -647,6 +647,17 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     All DSP goes through SpectrumProcessor.
     """
 
+    SPAN_STEPS_HZ = [
+        200_000,
+        500_000,
+        1_000_000,
+        2_000_000,
+        5_000_000,
+        10_000_000,
+        20_000_000,
+    ]
+    MAX_RF_BW_HZ = 20_000_000
+
     def __init__(self, cfg: SpectrumConfig):
         super().__init__()
         self.cfg = cfg
@@ -714,6 +725,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.single_pending: bool = False
         self.last_axis_span: Optional[float] = None
         self.last_axis_fft: Optional[int] = None
+        self.last_axis_xlim: Optional[Tuple[float, float]] = None
         self.help_overlays_enabled: bool = bool(self.state.get("help_overlays", True))
         self.trace_legend_enabled: bool = bool(self.state.get("trace_legend", True))
         self.spectrogram_enabled: bool = bool(self.state.get("spectrogram_enabled", False))
@@ -821,14 +833,38 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.freq_edit.setAlignment(QtCore.Qt.AlignRight)
         rf_layout.addWidget(self.freq_edit, 0, 1)
 
+        self.center_minus_btn = QtWidgets.QToolButton()
+        self.center_minus_btn.setText("−")
+        self.center_minus_btn.setAutoRepeat(True)
+        self.center_minus_btn.setAutoRepeatDelay(300)
+        self.center_minus_btn.setAutoRepeatInterval(60)
+        self.center_minus_btn.setAutoRaise(True)
+        self.center_minus_btn.setFixedSize(16, 16)
+
+        self.center_plus_btn = QtWidgets.QToolButton()
+        self.center_plus_btn.setText("+")
+        self.center_plus_btn.setAutoRepeat(True)
+        self.center_plus_btn.setAutoRepeatDelay(300)
+        self.center_plus_btn.setAutoRepeatInterval(60)
+        self.center_plus_btn.setAutoRaise(True)
+        self.center_plus_btn.setFixedSize(16, 16)
+
+        center_btns = QtWidgets.QWidget()
+        center_btns_layout = QtWidgets.QHBoxLayout(center_btns)
+        center_btns_layout.setContentsMargins(2, 0, 2, 0)
+        center_btns_layout.setSpacing(4)
+        center_btns_layout.addWidget(self.center_minus_btn)
+        center_btns_layout.addWidget(self.center_plus_btn)
+        rf_layout.addWidget(center_btns, 0, 2)
+
         self.freq_unit = QtWidgets.QComboBox()
         self.freq_unit.addItems(["Hz", "kHz", "MHz", "GHz"])
         self.freq_unit.setCurrentText("MHz")
         self.freq_unit.setFixedWidth(70)
-        rf_layout.addWidget(self.freq_unit, 0, 2)
+        rf_layout.addWidget(self.freq_unit, 0, 3)
 
         self.set_btn = QtWidgets.QPushButton("Set")
-        rf_layout.addWidget(self.set_btn, 0, 3)
+        rf_layout.addWidget(self.set_btn, 0, 4)
 
         rf_layout.addWidget(QtWidgets.QLabel("Span"), 1, 0)
         self.span_edit = QtWidgets.QLineEdit()
@@ -836,14 +872,38 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.span_edit.setAlignment(QtCore.Qt.AlignRight)
         rf_layout.addWidget(self.span_edit, 1, 1)
 
+        self.span_minus_btn = QtWidgets.QToolButton()
+        self.span_minus_btn.setText("−")
+        self.span_minus_btn.setAutoRepeat(True)
+        self.span_minus_btn.setAutoRepeatDelay(300)
+        self.span_minus_btn.setAutoRepeatInterval(80)
+        self.span_minus_btn.setAutoRaise(True)
+        self.span_minus_btn.setFixedSize(16, 16)
+
+        self.span_plus_btn = QtWidgets.QToolButton()
+        self.span_plus_btn.setText("+")
+        self.span_plus_btn.setAutoRepeat(True)
+        self.span_plus_btn.setAutoRepeatDelay(300)
+        self.span_plus_btn.setAutoRepeatInterval(80)
+        self.span_plus_btn.setAutoRaise(True)
+        self.span_plus_btn.setFixedSize(16, 16)
+
+        span_btns = QtWidgets.QWidget()
+        span_btns_layout = QtWidgets.QHBoxLayout(span_btns)
+        span_btns_layout.setContentsMargins(2, 0, 2, 0)
+        span_btns_layout.setSpacing(4)
+        span_btns_layout.addWidget(self.span_minus_btn)
+        span_btns_layout.addWidget(self.span_plus_btn)
+        rf_layout.addWidget(span_btns, 1, 2)
+
         self.span_unit = QtWidgets.QComboBox()
         self.span_unit.addItems(["Hz", "kHz", "MHz"])
         self.span_unit.setCurrentText("MHz")
         self.span_unit.setFixedWidth(70)
-        rf_layout.addWidget(self.span_unit, 1, 2)
+        rf_layout.addWidget(self.span_unit, 1, 3)
 
         self.apply_span_btn = QtWidgets.QPushButton("Apply")
-        rf_layout.addWidget(self.apply_span_btn, 1, 3)
+        rf_layout.addWidget(self.apply_span_btn, 1, 4)
 
         rf_layout.addWidget(QtWidgets.QLabel("RF BW"), 2, 0)
         self.rfbw_edit = QtWidgets.QLineEdit()
@@ -851,14 +911,38 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.rfbw_edit.setAlignment(QtCore.Qt.AlignRight)
         rf_layout.addWidget(self.rfbw_edit, 2, 1)
 
+        self.rfbw_minus_btn = QtWidgets.QToolButton()
+        self.rfbw_minus_btn.setText("−")
+        self.rfbw_minus_btn.setAutoRepeat(True)
+        self.rfbw_minus_btn.setAutoRepeatDelay(300)
+        self.rfbw_minus_btn.setAutoRepeatInterval(80)
+        self.rfbw_minus_btn.setAutoRaise(True)
+        self.rfbw_minus_btn.setFixedSize(16, 16)
+
+        self.rfbw_plus_btn = QtWidgets.QToolButton()
+        self.rfbw_plus_btn.setText("+")
+        self.rfbw_plus_btn.setAutoRepeat(True)
+        self.rfbw_plus_btn.setAutoRepeatDelay(300)
+        self.rfbw_plus_btn.setAutoRepeatInterval(80)
+        self.rfbw_plus_btn.setAutoRaise(True)
+        self.rfbw_plus_btn.setFixedSize(16, 16)
+
+        rfbw_btns = QtWidgets.QWidget()
+        rfbw_btns_layout = QtWidgets.QHBoxLayout(rfbw_btns)
+        rfbw_btns_layout.setContentsMargins(2, 0, 2, 0)
+        rfbw_btns_layout.setSpacing(4)
+        rfbw_btns_layout.addWidget(self.rfbw_minus_btn)
+        rfbw_btns_layout.addWidget(self.rfbw_plus_btn)
+        rf_layout.addWidget(rfbw_btns, 2, 2)
+
         self.rfbw_unit = QtWidgets.QComboBox()
         self.rfbw_unit.addItems(["Hz", "kHz", "MHz"])
         self.rfbw_unit.setCurrentText("MHz")
         self.rfbw_unit.setFixedWidth(70)
-        rf_layout.addWidget(self.rfbw_unit, 2, 2)
+        rf_layout.addWidget(self.rfbw_unit, 2, 3)
 
         self.apply_rfbw_btn = QtWidgets.QPushButton("Set")
-        rf_layout.addWidget(self.apply_rfbw_btn, 2, 3)
+        rf_layout.addWidget(self.apply_rfbw_btn, 2, 4)
 
         rf_layout.addWidget(QtWidgets.QLabel("Gain mode"), 3, 0)
         self.gainmode_cb = QtWidgets.QComboBox()
@@ -885,18 +969,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         sweep_layout.setVerticalSpacing(4)
 
         sweep_layout.addWidget(QtWidgets.QLabel("RBW"), 0, 0)
-        self.rbw_mode_cb = QtWidgets.QComboBox()
-        self.rbw_mode_cb.addItems(["Auto", "Manual"])
-        self.rbw_mode_cb.setCurrentText(self.cfg.rbw_mode)
-        sweep_layout.addWidget(self.rbw_mode_cb, 0, 1)
-
-        self.rbw_edit = QtWidgets.QLineEdit()
-        self.rbw_edit.setFixedWidth(80)
-        self.rbw_edit.setAlignment(QtCore.Qt.AlignRight)
-        sweep_layout.addWidget(self.rbw_edit, 0, 2)
-
-        self.rbw_apply_btn = QtWidgets.QPushButton("Apply")
-        sweep_layout.addWidget(self.rbw_apply_btn, 0, 3)
+        self.rbw_cb = QtWidgets.QComboBox()
+        sweep_layout.addWidget(self.rbw_cb, 0, 1, 1, 3)
 
         sweep_layout.addWidget(QtWidgets.QLabel("VBW"), 1, 0)
         self.vbw_mode_cb = QtWidgets.QComboBox()
@@ -919,7 +993,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.window_cb.addItems(["Hann", "Blackman Harris", "Flat top"])
         sweep_layout.addWidget(self.window_cb, 2, 3)
 
-        sweep_layout.addWidget(QtWidgets.QLabel("Update Hz"), 3, 2)
+        sweep_layout.addWidget(QtWidgets.QLabel("Update rate (Hz)"), 3, 2)
         self.update_hz_edit = QtWidgets.QLineEdit()
         self.update_hz_edit.setFixedWidth(60)
         self.update_hz_edit.setAlignment(QtCore.Qt.AlignRight)
@@ -1287,8 +1361,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         presets_menu.addAction(self.preset_measure_action)
 
     def _register_help(self, widget: QtWidgets.QWidget, text: str) -> None:
-        # ToolTip shows on long hover; overlay shows on enter/leave.
-        widget.setToolTip(text)
+        # Use only custom overlay helpers to avoid duplicate tooltips.
+        widget.setToolTip("")
         self.help_texts[widget] = text
         widget.installEventFilter(self)
 
@@ -1296,6 +1370,14 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._register_help(
             self.freq_edit,
             "Center frequency (Hz). Sets the LO tuning point around which span is drawn. Default 2.437 GHz.",
+        )
+        self._register_help(
+            self.center_minus_btn,
+            "Center step down. Uses FFT-bin-sized steps; hold Shift for 10x, Ctrl for 0.1x.",
+        )
+        self._register_help(
+            self.center_plus_btn,
+            "Center step up. Uses FFT-bin-sized steps; hold Shift for 10x, Ctrl for 0.1x.",
         )
         self._register_help(
             self.freq_unit,
@@ -1310,6 +1392,14 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "Span/sample rate (Hz). Wider span shows more spectrum but increases noise floor. Default 20 MHz.",
         )
         self._register_help(
+            self.span_minus_btn,
+            "Span step down. Steps through instrument-friendly spans.",
+        )
+        self._register_help(
+            self.span_plus_btn,
+            "Span step up. Steps through instrument-friendly spans.",
+        )
+        self._register_help(
             self.span_unit,
             "Span units. Span equals sample rate and sets visible bandwidth.",
         )
@@ -1319,15 +1409,23 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         )
         self._register_help(
             self.rfbw_edit,
-            "RF bandwidth (Hz). Should be ≥ span. Typical Pluto default is 20 MHz.",
+            "RF bandwidth (Hz). Keep at or below span for consistent filtering.",
+        )
+        self._register_help(
+            self.rfbw_minus_btn,
+            "RF BW step down. Steps through available RF bandwidth presets.",
+        )
+        self._register_help(
+            self.rfbw_plus_btn,
+            "RF BW step up. Steps through available RF bandwidth presets.",
         )
         self._register_help(
             self.rfbw_unit,
-            "RF bandwidth units. Keep RF BW at or above span.",
+            "RF bandwidth units. Keep RF BW at or below span.",
         )
         self._register_help(
             self.apply_rfbw_btn,
-            "Apply RF bandwidth. Keeps analog filter wide enough for span.",
+            "Apply RF bandwidth. Limits analog filter bandwidth to the span.",
         )
         self._register_help(
             self.gainmode_cb,
@@ -1346,16 +1444,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "Measurement mode. Locks gain to manual for repeatable readings.",
         )
         self._register_help(
-            self.rbw_mode_cb,
-            "RBW mode. Auto picks FFT size from span; Manual uses the RBW value. Default Manual.",
-        )
-        self._register_help(
-            self.rbw_edit,
-            "Resolution bandwidth (Hz). Smaller RBW separates closer signals but slows updates. RBW depends on FFT size and window ENBW.",
-        )
-        self._register_help(
-            self.rbw_apply_btn,
-            "Apply RBW. Updates FFT size and RBW based on selection.",
+            self.rbw_cb,
+            "Resolution bandwidth (RBW). Auto selects FFT size or choose a supported RBW value.",
         )
         self._register_help(
             self.vbw_mode_cb,
@@ -1508,15 +1598,20 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def _wire_events(self):
         self.set_btn.clicked.connect(self.on_set_center)
+        self.center_minus_btn.clicked.connect(lambda: self.on_center_step(-1))
+        self.center_plus_btn.clicked.connect(lambda: self.on_center_step(1))
         self.apply_span_btn.clicked.connect(self.on_apply_span)
+        self.span_minus_btn.clicked.connect(lambda: self.on_span_step(-1))
+        self.span_plus_btn.clicked.connect(lambda: self.on_span_step(1))
         self.apply_rfbw_btn.clicked.connect(self.on_apply_rfbw)
+        self.rfbw_minus_btn.clicked.connect(lambda: self.on_rfbw_step(-1))
+        self.rfbw_plus_btn.clicked.connect(lambda: self.on_rfbw_step(1))
 
         self.gainmode_cb.currentTextChanged.connect(self.on_gainmode_changed)
         self.apply_gain_btn.clicked.connect(self.on_apply_gain)
         self.measurement_cb.toggled.connect(self.on_measurement_mode)
 
-        self.rbw_mode_cb.currentTextChanged.connect(self.on_rbw_mode)
-        self.rbw_apply_btn.clicked.connect(self.on_apply_rbw)
+        self.rbw_cb.currentIndexChanged.connect(self.on_rbw_selected)
         self.window_cb.currentTextChanged.connect(self.on_window_changed)
 
         self.vbw_mode_cb.currentTextChanged.connect(self.on_vbw_mode)
@@ -1589,8 +1684,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.gain_edit.setText(str(self.cfg.gain_db))
         self.measurement_cb.setChecked(self.cfg.measurement_mode)
 
-        self.rbw_mode_cb.setCurrentText(self.cfg.rbw_mode)
-        self.rbw_edit.setText(f"{self.cfg.rbw_hz:.0f}")
+        self._refresh_rbw_options()
         self.vbw_mode_cb.setCurrentText(self.cfg.vbw_mode)
         self.vbw_edit.setText(f"{self.cfg.vbw_hz:.0f}")
         self.detector_cb.setCurrentText(self.cfg.detector)
@@ -1655,7 +1749,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         self.on_gainmode_changed(self.cfg.gain_mode)
         self.on_measurement_mode(self.cfg.measurement_mode)
-        self.on_rbw_mode(self.cfg.rbw_mode)
+        self.on_rbw_selected(self.rbw_cb.currentIndex())
         self.on_vbw_mode(self.cfg.vbw_mode)
         self.on_detector_changed(self.cfg.detector)
         self._update_range_label()
@@ -1767,6 +1861,84 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         scale = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[unit]
         return int(value * scale)
 
+    def _allowed_fft_sizes(self) -> list[int]:
+        return [2**n for n in range(10, 19)]
+
+    def _format_rbw_label(self, rbw_hz: float) -> str:
+        if rbw_hz >= 1e6:
+            return f"{rbw_hz/1e6:.3f} MHz"
+        if rbw_hz >= 1e3:
+            return f"{rbw_hz/1e3:.3f} kHz"
+        return f"{rbw_hz:.0f} Hz"
+
+    def _refresh_rbw_options(self) -> None:
+        fs = float(self.cfg.sample_rate_hz)
+        window = self.cfg.window
+        rbw_values: list[Tuple[float, int]] = []
+        for fft_size in self._allowed_fft_sizes():
+            proc = SpectrumProcessor(fft_size, window)
+            rbw_values.append((proc.rbw_hz(fs), fft_size))
+        rbw_values.sort(key=lambda pair: pair[0])
+        unique_rbws: list[Tuple[float, int]] = []
+        seen = set()
+        for rbw, fft_size in rbw_values:
+            key = round(rbw, 2)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique_rbws.append((rbw, fft_size))
+
+        self.rbw_cb.blockSignals(True)
+        self.rbw_cb.clear()
+        self.rbw_cb.addItem("Auto", None)
+        for rbw, fft_size in unique_rbws:
+            label = self._format_rbw_label(rbw)
+            self.rbw_cb.addItem(label, float(rbw))
+        self._sync_rbw_dropdown()
+        self.rbw_cb.blockSignals(False)
+
+    def _sync_rbw_dropdown(self) -> None:
+        self.rbw_cb.blockSignals(True)
+        if self.cfg.rbw_mode == "Auto":
+            self.rbw_cb.setCurrentIndex(0)
+        else:
+            rbw_values = [
+                (idx, self.rbw_cb.itemData(idx))
+                for idx in range(1, self.rbw_cb.count())
+            ]
+            if rbw_values:
+                idx = min(rbw_values, key=lambda pair: abs(float(pair[1]) - self.cfg.rbw_hz))[0]
+                self.rbw_cb.setCurrentIndex(idx)
+        self.rbw_cb.blockSignals(False)
+
+    def _rfbw_limits(self, span_hz: Optional[int] = None) -> int:
+        span = self.cfg.sample_rate_hz if span_hz is None else span_hz
+        return int(min(span, self.MAX_RF_BW_HZ))
+
+    def _clamp_rfbw(self, hz: int, span_hz: Optional[int] = None) -> int:
+        return int(max(1_000, min(hz, self._rfbw_limits(span_hz))))
+
+    def _step_from_list(self, current: float, values: list[int], direction: int) -> int:
+        if not values:
+            return int(current)
+        idx = min(range(len(values)), key=lambda i: abs(values[i] - current))
+        if not math.isclose(values[idx], current, rel_tol=0.0, abs_tol=1.0):
+            idx = idx + 1 if direction > 0 else idx - 1
+        else:
+            idx = idx + (1 if direction > 0 else -1)
+        idx = max(0, min(idx, len(values) - 1))
+        return int(values[idx])
+
+    def _center_step_hz(self) -> float:
+        bin_width = float(self.cfg.sample_rate_hz) / float(self.cfg.fft_size)
+        step = max(1.0, bin_width)
+        mods = QtWidgets.QApplication.keyboardModifiers()
+        if mods & QtCore.Qt.ShiftModifier:
+            step *= 10.0
+        if mods & QtCore.Qt.ControlModifier:
+            step *= 0.1
+        return step
+
     def _sync_center_edit(self):
         unit = self.freq_unit.currentText()
         inv = {"Hz": 1.0, "kHz": 1e3, "MHz": 1e6, "GHz": 1e9}[unit]
@@ -1786,7 +1958,17 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         # Keep the visible span centered on the LO.
         lo = float(self.sdr.lo)
         sr = float(self.sdr.sample_rate)
-        self.plot.setXRange(lo - sr / 2.0, lo + sr / 2.0, padding=0.0)
+        self._sync_plot_range(lo, sr)
+
+    def _sync_plot_range(self, lo: float, sr: float) -> None:
+        x_min = float(lo - sr / 2.0)
+        x_max = float(lo + sr / 2.0)
+        xlim = (x_min, x_max)
+        if self.last_axis_xlim != xlim:
+            self.plot.setXRange(x_min, x_max, padding=0.0)
+            vb = self.plot.getViewBox()
+            vb.setLimits(xMin=x_min, xMax=x_max)
+            self.last_axis_xlim = xlim
 
     def on_set_center(self):
         try:
@@ -1799,30 +1981,71 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         except Exception as exc:
             self.status.setText(f"Bad center freq: {exc}")
 
+    def on_center_step(self, direction: int) -> None:
+        try:
+            step = self._center_step_hz()
+            base = int(self.cfg.center_hz)
+            hz = int(round(base + direction * step))
+            with QtCore.QMutexLocker(self.worker._lock):
+                self.sdr.set_center_hz(hz)
+            self._sync_center_edit()
+            self.snap_x_to_span()
+            self.status.setText(f"Center set to {self.cfg.center_hz} Hz")
+        except Exception as exc:
+            self.status.setText(f"Center step failed: {exc}")
+
+    def _apply_span_value(self, span_hz: int) -> None:
+        span_hz = int(max(1_000, min(span_hz, self.SPAN_STEPS_HZ[-1])))
+        rf_bw_hz = self._clamp_rfbw(min(span_hz, self.cfg.rf_bw_hz), span_hz=span_hz)
+        self._set_cfg(sample_rate_hz=span_hz, rf_bw_hz=rf_bw_hz)
+        self.worker.queue_config({"span_hz": span_hz, "rf_bw_hz": rf_bw_hz})
+        self._sync_span_edit()
+        self._sync_rfbw_edit()
+        self._refresh_rbw_options()
+        self._apply_rbw_strategy()
+        self.snap_x_to_span()
+        self._clear_trace_state_if_needed()
+        self.status.setText(f"Span set to {span_hz} Hz")
+
     def on_apply_span(self):
         try:
             span_hz = self._parse_value_to_hz(self.span_edit.text(), self.span_unit.currentText())
-            rf_bw_hz = max(span_hz, self.cfg.rf_bw_hz)
-            self._set_cfg(sample_rate_hz=span_hz, rf_bw_hz=rf_bw_hz)
-            self.worker.queue_config({"span_hz": span_hz, "rf_bw_hz": rf_bw_hz})
-            self._sync_span_edit()
-            self._sync_rfbw_edit()
-            self._apply_rbw_strategy()
-            self.snap_x_to_span()
-            self._clear_trace_state_if_needed()
-            self.status.setText(f"Span set to {span_hz} Hz")
+            self._apply_span_value(span_hz)
         except Exception as exc:
             self.status.setText(f"Span apply failed: {exc}")
+
+    def on_span_step(self, direction: int) -> None:
+        try:
+            span_hz = self._step_from_list(self.cfg.sample_rate_hz, self.SPAN_STEPS_HZ, direction)
+            self._apply_span_value(span_hz)
+        except Exception as exc:
+            self.status.setText(f"Span step failed: {exc}")
 
     def on_apply_rfbw(self):
         try:
             hz = self._parse_value_to_hz(self.rfbw_edit.text(), self.rfbw_unit.currentText())
+            hz = self._clamp_rfbw(min(hz, self.cfg.sample_rate_hz), span_hz=self.cfg.sample_rate_hz)
             self._set_cfg(rf_bw_hz=hz)
             self.worker.queue_config({"rf_bw_hz": hz})
             self._sync_rfbw_edit()
             self.status.setText(f"RF BW set to {hz} Hz")
         except Exception as exc:
             self.status.setText(f"RF BW set failed: {exc}")
+
+    def on_rfbw_step(self, direction: int) -> None:
+        try:
+            limit = self._rfbw_limits()
+            step_values = [val for val in self.SPAN_STEPS_HZ if val <= limit]
+            if not step_values:
+                step_values = [limit]
+            rf_bw_hz = self._step_from_list(self.cfg.rf_bw_hz, step_values, direction)
+            rf_bw_hz = self._clamp_rfbw(min(rf_bw_hz, self.cfg.sample_rate_hz), span_hz=self.cfg.sample_rate_hz)
+            self._set_cfg(rf_bw_hz=rf_bw_hz)
+            self.worker.queue_config({"rf_bw_hz": rf_bw_hz})
+            self._sync_rfbw_edit()
+            self.status.setText(f"RF BW set to {rf_bw_hz} Hz")
+        except Exception as exc:
+            self.status.setText(f"RF BW step failed: {exc}")
 
     def on_gainmode_changed(self, mode: str):
         try:
@@ -1857,30 +2080,18 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         else:
             self.gainmode_cb.setEnabled(True)
 
-    def on_rbw_mode(self, mode: str):
-        self._set_cfg(rbw_mode=mode)
-        manual = mode == "Manual"
-        self.rbw_edit.setEnabled(manual)
-        self.rbw_apply_btn.setEnabled(manual)
-        # Auto RBW recomputes FFT size to keep a manageable number of points.
-        if not manual:
-            self._apply_rbw_strategy()
-            self._clear_trace_state_if_needed()
-
-    def on_apply_rbw(self):
-        try:
-            rbw = float(self.rbw_edit.text().strip())
-            if rbw <= 0:
-                raise ValueError("RBW must be > 0")
-            self._set_cfg(rbw_hz=rbw)
-            # Manual RBW maps to nearest supported FFT size.
-            self._apply_rbw_strategy()
-        except Exception as exc:
-            self.status.setText(f"RBW apply failed: {exc}")
+    def on_rbw_selected(self, _index: int) -> None:
+        rbw_value = self.rbw_cb.currentData()
+        if rbw_value is None:
+            self._set_cfg(rbw_mode="Auto")
+        else:
+            self._set_cfg(rbw_mode="Manual", rbw_hz=float(rbw_value))
+        self._apply_rbw_strategy()
 
     def on_window_changed(self, window: str):
         self._set_cfg(window=window)
         # Window choice affects ENBW, so recalc RBW/FFT size.
+        self._refresh_rbw_options()
         self._apply_rbw_strategy()
         self._clear_trace_state_if_needed()
 
@@ -2115,8 +2326,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         self._sync_span_edit()
         self._sync_rfbw_edit()
-        self.rbw_mode_cb.setCurrentText(self.cfg.rbw_mode)
-        self.rbw_edit.setText(f"{self.cfg.rbw_hz:.0f}")
+        self._refresh_rbw_options()
         self.vbw_mode_cb.setCurrentText(self.cfg.vbw_mode)
         self.vbw_edit.setText(f"{self.cfg.vbw_hz:.0f}")
         self.detector_cb.setCurrentText(self.cfg.detector)
@@ -2388,12 +2598,13 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         span = int(max(1_000, min(20_000_000, self.cfg.sample_rate_hz * factor)))
         with QtCore.QMutexLocker(self.worker._lock):
             self.sdr.set_center_hz(int(center_hz))
-        rf_bw = max(span, self.cfg.rf_bw_hz)
+        rf_bw = self._clamp_rfbw(min(span, self.cfg.rf_bw_hz), span_hz=span)
         self._set_cfg(sample_rate_hz=span, rf_bw_hz=rf_bw)
         self.worker.queue_config({"span_hz": span, "rf_bw_hz": rf_bw})
         self._sync_center_edit()
         self._sync_span_edit()
         self._sync_rfbw_edit()
+        self._refresh_rbw_options()
         self._apply_rbw_strategy()
         self.snap_x_to_span()
 
@@ -2455,25 +2666,48 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             return freqs, display
         bins = max(1, target_points // 2)
         stride = n / float(bins)
-        out_f = []
-        out_y = []
+        indices: list[int] = [0, n - 1]
         for i in range(bins):
             start = int(i * stride)
             end = int(min(n, (i + 1) * stride))
             if end <= start:
                 continue
             seg = display[start:end]
-            seg_f = freqs[start:end]
             min_idx = int(np.argmin(seg))
             max_idx = int(np.argmax(seg))
-            if min_idx <= max_idx:
-                order = [min_idx, max_idx]
-            else:
-                order = [max_idx, min_idx]
-            for idx in order:
-                out_f.append(seg_f[idx])
-                out_y.append(seg[idx])
-        return np.array(out_f), np.array(out_y)
+            indices.append(start + min_idx)
+            indices.append(start + max_idx)
+
+        indices = sorted(set(indices))
+        out_f = freqs[indices]
+        out_y = display[indices]
+        finite_mask = np.isfinite(out_f) & np.isfinite(out_y)
+        out_f = out_f[finite_mask]
+        out_y = out_y[finite_mask]
+
+        if out_f.size == 0:
+            return freqs[:1], display[:1]
+
+        if out_f[0] != freqs[0] or out_f[-1] != freqs[-1]:
+            first_idx = int(np.argmax(np.isfinite(freqs) & np.isfinite(display)))
+            last_idx = int(len(freqs) - 1 - np.argmax(np.isfinite(freqs[::-1]) & np.isfinite(display[::-1])))
+            extra_indices = [first_idx, last_idx]
+            extra_f = freqs[extra_indices]
+            extra_y = display[extra_indices]
+            extra_mask = np.isfinite(extra_f) & np.isfinite(extra_y)
+            out_f = np.concatenate([out_f, extra_f[extra_mask]])
+            out_y = np.concatenate([out_y, extra_y[extra_mask]])
+
+        sort_idx = np.argsort(out_f)
+        out_f = out_f[sort_idx]
+        out_y = out_y[sort_idx]
+
+        if out_f.size > 1:
+            unique_mask = np.concatenate([[True], np.diff(out_f) > 0])
+            out_f = out_f[unique_mask]
+            out_y = out_y[unique_mask]
+
+        return out_f, out_y
 
     def _decimate_spectrogram_row(
         self, freqs: np.ndarray, row: np.ndarray, target_cols: int = 1024
@@ -2543,7 +2777,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         target_n = max(1024, min(262144, target_n))
 
         # Restrict to power-of-two FFT sizes for speed.
-        allowed = [2 ** n for n in range(10, 19)]
+        allowed = self._allowed_fft_sizes()
         fft_size = min(allowed, key=lambda n: abs(n - target_n))
 
         buffer_factor = max(2, self.cfg.buffer_factor)
@@ -2551,7 +2785,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.worker.queue_config({"fft_size": fft_size, "buffer_factor": buffer_factor, "window": window})
         temp_proc = SpectrumProcessor(fft_size, window)
         self.cfg.rbw_hz = temp_proc.rbw_hz(fs)
-        self.rbw_edit.setText(f"{self.cfg.rbw_hz:.0f}")
+        self._sync_rbw_dropdown()
         self.status.setText(f"RBW updated: {self.cfg.rbw_hz:.0f} Hz")
         self._clear_trace_state_if_needed()
 
@@ -2937,6 +3171,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._update_peak_table()
         self.hover.update_axis(freqs, display)
         self._update_markers()
+
+        self._sync_plot_range(float(payload["lo"]), float(payload["fs"]))
 
         self._update_ref_level(display)
         span = float(freqs[-1] - freqs[0]) if len(freqs) > 1 else 0.0
