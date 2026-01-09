@@ -42,6 +42,9 @@ RBW is derived from FFT size and the selected window. The RBW dropdown either au
 ### Update rate
 The update rate controls UI refresh and worker pacing. Higher rates increase CPU usage and can reduce sweep stability; lower rates improve stability at the cost of responsiveness.
 
+### Settings panel controls
+Use the left-panel **Hide settings** button to collapse the settings column and give the plot area full width. Click the right-pointing button that appears in the plot area to restore it. You can also toggle the settings panel with **Ctrl+B**. The splitter remembers your last width when you reopen the panel.
+
 ### Spectrogram interpretation and settings
 The spectrogram shows time on the Y axis and frequency across X. Adjust the speed (rows/sec) and depth (seconds) to trade between history and responsiveness. LUT and scale options control contrast and dynamic range.
 

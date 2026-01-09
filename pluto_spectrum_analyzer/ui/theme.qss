@@ -10,6 +10,7 @@ QWidget#navPanel {
   background-color: #252526;
   border: 1px solid #3A3A3D;
   border-radius: 12px;
+  padding: 4px;
 }
 
 QWidget:disabled {
@@ -17,6 +18,16 @@ QWidget:disabled {
 }
 
 QFrame#brandCard {
+  background-color: #2D2D30;
+  border: 1px solid #3A3A3D;
+  border-radius: 10px;
+}
+
+QWidget#navContents {
+  background-color: transparent;
+}
+
+QFrame#navSection {
   background-color: #2D2D30;
   border: 1px solid #3A3A3D;
   border-radius: 10px;
@@ -34,12 +45,13 @@ QLabel#brandSubtitle {
 }
 
 QToolButton#navHeader {
-  background-color: #2D2D30;
-  border: 1px solid #3A3A3D;
+  background-color: transparent;
+  border: none;
   border-radius: 8px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   text-align: left;
   font-size: 13px;
+  min-height: 32px;
 }
 
 QToolButton#navHeader:hover {
@@ -48,14 +60,12 @@ QToolButton#navHeader:hover {
 
 QToolButton#navHeader[expanded="true"] {
   background-color: #1F6AA5;
-  border-color: #1F6AA5;
   color: #FFFFFF;
 }
 
 QFrame#navContent {
-  background-color: #252526;
-  border: 1px solid #3A3A3D;
-  border-radius: 8px;
+  background-color: transparent;
+  border: none;
 }
 
 QLabel {
@@ -106,6 +116,19 @@ QToolButton {
   border: 1px solid #3A3A3D;
   border-radius: 6px;
   padding: 4px 8px;
+}
+
+QToolButton#hideSettingsButton,
+QToolButton#showSettingsButton {
+  background-color: transparent;
+  border: none;
+  padding: 4px;
+}
+
+QToolButton#hideSettingsButton:hover,
+QToolButton#showSettingsButton:hover {
+  background-color: #333337;
+  border-radius: 6px;
 }
 
 QPushButton:disabled,
