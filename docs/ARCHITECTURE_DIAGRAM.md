@@ -4,7 +4,7 @@
 flowchart LR
     subgraph Clients
         Qt[PyQt UI - reference client]
-        Web[Web UI - future]
+        Web[Web UI - upcoming]
     end
 
     subgraph Backend
@@ -12,8 +12,8 @@ flowchart LR
         Worker[SpectrumWorker - DSP thread]
         SDR[Pluto SDR - pyadi-iio]
         Protocol[Protocol v1.0 helpers]
-        REST[FastAPI REST - future]
-        WS[FastAPI WebSocket - future]
+        REST[FastAPI REST]
+        WS[FastAPI WebSocket]
     end
 
     Qt -->|subscribe engine frames| Engine

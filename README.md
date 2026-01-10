@@ -44,6 +44,15 @@ python3 -m pip install pytest
 python3 spectrum-monitor.py
 ```
 
+### Server mode (headless API)
+Run the FastAPI server for REST/WebSocket access:
+```bash
+python3 -m uvicorn pluto_spectrum_analyzer.server.app:app --reload
+```
+
+See `docs/API.md` for the list of available REST endpoints and WebSocket
+streaming details.
+
 ## Usage guide
 ### Typical workflows
 - **Fast view**: use the Fast View preset for responsive updates while tuning.
@@ -77,7 +86,6 @@ If the Pluto is not reachable, the test button will report the failure. The appl
 - **Performance tips**: lower FFT size, lower update rate, and disable the spectrogram for best performance.
 
 ## Roadmap
-- Waterfall rendering improvements
-- Multi-receiver support
-- IQ recording
-- Calibration assistant
+The project is mid-transition from the PyQt UI to a web UI. The backend API and
+WebSocket streaming are in place; the next phase is to scaffold the web
+frontend. See `docs/PLAN.md` for the detailed phase checklist.

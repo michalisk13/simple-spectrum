@@ -17,7 +17,7 @@ headless backend and a modern web UI, all without streaming raw IQ.
 
 ---
 
-## Phase 1: Engine & protocol foundation (current work)
+## Phase 1: Engine & protocol foundation (complete)
 
 **Step 1: Engine module**
 * Add a headless Engine that manages SDR and worker lifecycle.
@@ -41,7 +41,7 @@ headless backend and a modern web UI, all without streaming raw IQ.
 
 ---
 
-## Phase 2: FastAPI backend
+## Phase 2: FastAPI backend (complete)
 
 **Step 5: Add server package**
 * Create `pluto_spectrum_analyzer/server/` with app factory, routes, WS.
@@ -57,7 +57,7 @@ headless backend and a modern web UI, all without streaming raw IQ.
 
 ---
 
-## Phase 3: WebSocket streaming
+## Phase 3: WebSocket streaming (complete)
 
 **Step 7: WebSocket stream**
 * WS /ws/stream sends StatusFrame immediately.
@@ -70,7 +70,7 @@ headless backend and a modern web UI, all without streaming raw IQ.
 
 ---
 
-## Phase 4: High-throughput display pipeline
+## Phase 4: High-throughput display pipeline (complete)
 
 **Step 8: Decimation and quantization**
 * Add Engine display pipeline for spectrum and spectrogram decimation.
@@ -87,7 +87,7 @@ headless backend and a modern web UI, all without streaming raw IQ.
 
 ---
 
-## Phase 5: Web UI scaffold
+## Phase 5: Web UI scaffold (next)
 
 **Step 10: Frontend project**
 * React + TypeScript + Vite, Mantine or MUI, Tabler/Lucide icons.
