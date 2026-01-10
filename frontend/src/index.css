@@ -101,6 +101,8 @@ body {
 .panel-fill {
   height: 100%;
   display: flex;
+  width: 100%;
+  min-width: 0;
 }
 
 .panel-surface {
@@ -110,6 +112,9 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  flex: 1;
+  width: 100%;
+  min-width: 0;
 }
 
 .panel-header {
@@ -141,6 +146,8 @@ body {
 
 .plot-container {
   flex: 1;
+  width: 100%;
+  min-width: 0;
   border-radius: 14px;
   border: 1px solid #1f2a44;
   background: var(--panel-elevated);
