@@ -68,6 +68,7 @@ export class ApiClient {
   // Apply partial configuration updates.
   async updateConfig(payload: ConfigUpdatePayload): Promise<ApiConfigResponse | null> {
     try {
+      this.debugLog("POST /config", payload);
       return await this.request<ApiConfigResponse>("/config", {
         method: "POST",
         headers: {
@@ -175,6 +176,7 @@ export class ApiClient {
   // Apply a named preset.
   async applyPreset(payload: ApplyPresetRequest): Promise<ApplyPresetResponse | null> {
     try {
+      this.debugLog("POST /presets/apply", payload);
       const response = await this.request<ApplyPresetResponse>("/presets/apply", {
         method: "POST",
         headers: {
@@ -212,6 +214,17 @@ export class ApiClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  private debugLog(message: string, payload?: unknown): void {
+    if (!import.meta.env?.DEV) {
+      return;
+    }
+    if (payload === undefined) {
+      console.debug(`[api] ${message}`);
+      return;
+    }
+    console.debug(`[api] ${message}`, payload);
   }
 
   private handleCommandResponse(response: ApiCommandResponse): void {
