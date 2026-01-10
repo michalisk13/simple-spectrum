@@ -9,6 +9,9 @@ shows failures with Mantine notifications via
 `frontend/src/components/notifications/notify.tsx`.
 WebSocket discovery lives in `frontend/src/hooks/useWebSocket.ts` with typed
 helpers in `frontend/src/ws/`.
+Mock spectrum and spectrogram rendering lives in
+`frontend/src/components/plots/` and is driven by the 20 fps animation hook in
+`frontend/src/hooks/useAnimationFrame.ts`.
 
 ## Run the backend
 ```bash

@@ -59,9 +59,10 @@ These require a connected SDR and are not suitable for CI:
 * Quick script available in `docs/phase4-test.md`.
 
 #### Phase 5: Web UI scaffold
-* `npm run dev` starts the app and loads layout with placeholders.
+* `npm run dev` starts the app and loads layout with canvas scaffolds.
 * Status bar reflects `/api/status` changes.
 * WebSocket discovery hook logs StatusFrame payloads.
+* Spectrum and spectrogram animate mock data at ~20 fps via canvas rendering.
 * Quick script available in `docs/phase5-test.md`.
 
 #### Phase 6: Web UI streaming
