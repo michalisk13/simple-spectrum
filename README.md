@@ -71,6 +71,9 @@ npm run dev
 ```
 The dev server runs on port 5173 and proxies API calls from `/api` to
 `http://localhost:8000`. See `docs/FRONTEND_DEV.md` for more detail.
+The frontend uses a typed API client wrapper (`frontend/src/api/client.ts`) and
+Mantine notifications (`frontend/src/components/notifications/notify.tsx`) to
+surface API errors without blocking the UI.
 
 ## Usage guide
 ### Typical workflows
