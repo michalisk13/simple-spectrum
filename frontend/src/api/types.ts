@@ -84,6 +84,81 @@ export type ApiStatusResponse = {
   error: EngineError | null;
 };
 
+// App configuration settings mirrored from the backend SpectrumConfig dataclass.
+export type SpectrumConfig = {
+  uri: string;
+  center_hz: number;
+  sample_rate_hz: number;
+  rf_bw_hz: number;
+  gain_db: number;
+  gain_mode: string;
+  fft_size: number;
+  update_ms: number;
+  buffer_factor: number;
+  overlap: number;
+  hover_rate_hz: number;
+  rbw_mode: string;
+  rbw_hz: number;
+  window: string;
+  vbw_mode: string;
+  vbw_hz: number;
+  detector: string;
+  trace_type: string;
+  trace2_enabled: boolean;
+  avg_count: number;
+  avg_mode: string;
+  ref_level_db: number;
+  display_range_db: number;
+  spectrogram_mode: string;
+  max_spectrum_bins: number;
+  max_spectrogram_cols: number;
+  spectrogram_quantize: boolean;
+  measurement_mode: boolean;
+  dc_remove: boolean;
+  dc_blank_bins: number;
+};
+
+// Stream metadata for the spectrogram pipeline.
+export type StreamMetadata = {
+  spectrogram_enabled: boolean;
+  spectrogram_rate: number;
+  spectrogram_time_span_s: number;
+};
+
+// REST response from GET/POST /api/config.
+export type ApiConfigResponse = {
+  config: SpectrumConfig;
+  stream: StreamMetadata;
+};
+
+// Payload for POST /api/config (partial updates).
+export type ConfigUpdatePayload = Partial<SpectrumConfig> & Partial<StreamMetadata>;
+
+// Standard ok/status response from SDR commands.
+export type ApiCommandResponse = {
+  ok: boolean;
+  status: EngineStatus;
+  error?: EngineError | null;
+  message?: string;
+};
+
+// List of preset names from GET /api/presets.
+export type ApiPresetsResponse = {
+  presets: string[];
+};
+
+// Payload for POST /api/presets/apply.
+export type ApplyPresetRequest = {
+  name: string;
+  measure_detector?: string;
+};
+
+// Response from POST /api/presets/apply.
+export type ApplyPresetResponse = {
+  ok: boolean;
+  config: ApiConfigResponse;
+};
+
 // Client-side API error shape for fetch failures.
 export type ApiError = {
   // Human-readable message to show in notifications.
