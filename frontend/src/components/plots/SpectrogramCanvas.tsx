@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
+import type { SpectrogramMetaFrame } from "../../ws/types";
 
 const palette = (value: number) => {
   const clamped = Math.min(1, Math.max(0, value));
@@ -10,15 +11,29 @@ const palette = (value: number) => {
 };
 
 export type SpectrogramCanvasProps = {
-  row: number[];
+  row: Float32Array | Uint8Array;
+  meta?: SpectrogramMetaFrame | null;
 };
 
-const SpectrogramCanvas = ({ row }: SpectrogramCanvasProps) => {
+const SpectrogramCanvas = ({ row, meta }: SpectrogramCanvasProps) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bufferRef = useRef<HTMLCanvasElement | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const rowLength = useMemo(() => row.length, [row.length]);
+  const scale = useMemo(() => {
+    if (!meta || meta.dtype !== "f32") {
+      return null;
+    }
+    const range = meta.db_max - meta.db_min;
+    if (!Number.isFinite(range) || range <= 0) {
+      return null;
+    }
+    return {
+      min: meta.db_min,
+      range,
+    };
+  }, [meta]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -89,7 +104,14 @@ const SpectrogramCanvas = ({ row }: SpectrogramCanvasProps) => {
     const imageData = bufferCtx.createImageData(bufferWidth, 1);
     for (let x = 0; x < bufferWidth; x += 1) {
       const idx = Math.floor((x / widthScale) * rowScale);
-      const color = palette(row[idx]);
+      const raw = row[idx];
+      const normalized =
+        row instanceof Uint8Array
+          ? raw / 255
+          : scale
+            ? (raw - scale.min) / scale.range
+            : 0;
+      const color = palette(normalized);
       const offset = x * 4;
 
       imageData.data[offset] = color.r;
@@ -104,7 +126,7 @@ const SpectrogramCanvas = ({ row }: SpectrogramCanvasProps) => {
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(buffer, 0, 0, canvas.width, canvas.height);
-  }, [row, rowLength]);
+  }, [row, rowLength, scale]);
 
   return <canvas ref={canvasRef} className="plot-canvas" />;
 };
