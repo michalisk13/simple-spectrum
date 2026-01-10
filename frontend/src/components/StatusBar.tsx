@@ -1,4 +1,4 @@
-import { ActionIcon, Badge, Group, Text, Button } from "@mantine/core";
+import { ActionIcon, Badge, Button, Group, Stack, Text } from "@mantine/core";
 import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarRightCollapse,
@@ -36,7 +36,7 @@ function StatusBar({
 
   return (
     <Group justify="space-between" align="center" className="status-bar">
-      <Group gap="md">
+      <Group gap="md" className="status-left">
         <ActionIcon
           variant="subtle"
           color="gray"
@@ -45,38 +45,60 @@ function StatusBar({
         >
           <SidebarIcon size={20} />
         </ActionIcon>
-        <Text fw={600}>Pluto Spectrum Analyzer</Text>
-        {/* Connection badge derived from the latest API status. */}
-        <Badge variant="light" color={statusColorMap[connectionState]}>
-          {connectionState}
-        </Badge>
-        <Text size="sm" c="dimmed">
-          API: /api/status
-        </Text>
+        <Group gap="xs">
+          <Text fw={600}>Pluto Spectrum Analyzer</Text>
+          <Badge variant="light" color={statusColorMap[connectionState]}>
+            {connectionState}
+          </Badge>
+        </Group>
+        <Group gap="md" className="status-meta">
+          <Text size="sm" c="dimmed">
+            SDR: Pluto (ip:192.168.2.1)
+          </Text>
+          <Text size="sm" c="dimmed">
+            Center: 2.437 GHz
+          </Text>
+          <Text size="sm" c="dimmed">
+            Span: 20 MHz
+          </Text>
+        </Group>
       </Group>
 
-      <Group gap="sm">
-        <Button
-          size="xs"
-          variant="light"
-          leftSection={<IconRefresh size={16} />}
-          onClick={onRefresh}
-        >
-          Refresh
-        </Button>
-        <Button
-          size="xs"
-          variant="filled"
-          leftSection={
-            connectionState === "connected" ? (
-              <IconPlugConnectedX size={16} />
-            ) : (
-              <IconPlugConnected size={16} />
-            )
-          }
-        >
-          {connectionState === "connected" ? "Disconnect" : "Connect"}
-        </Button>
+      <Group gap="lg" className="status-right">
+        <Stack gap={2} className="status-messages">
+          <Text size="xs" c="dimmed">
+            Instrument: Ready
+          </Text>
+          <Text size="xs" c="dimmed">
+            Status: Idle
+          </Text>
+          <Text size="xs" c="yellow">
+            Warnings: None
+          </Text>
+        </Stack>
+        <Group gap="sm">
+          <Button
+            size="xs"
+            variant="light"
+            leftSection={<IconRefresh size={16} />}
+            onClick={onRefresh}
+          >
+            Refresh
+          </Button>
+          <Button
+            size="xs"
+            variant="filled"
+            leftSection={
+              connectionState === "connected" ? (
+                <IconPlugConnectedX size={16} />
+              ) : (
+                <IconPlugConnected size={16} />
+              )
+            }
+          >
+            {connectionState === "connected" ? "Disconnect" : "Connect"}
+          </Button>
+        </Group>
       </Group>
     </Group>
   );
