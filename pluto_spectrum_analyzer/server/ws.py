@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+import time
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -71,6 +72,8 @@ class _StreamHub:
                 session.queue.put_nowait(frame)
             except asyncio.QueueFull:
                 # Drop frames if a client is slow to prevent blocking others.
+                # Increment a drop counter so status metrics surface backpressure.
+                self._engine.record_frame_dropped()
                 continue
 
 
@@ -90,6 +93,8 @@ async def _send_status(session: _ClientSession, engine: Engine) -> None:
 
 
 async def _send_spectrum(session: _ClientSession, frame: EngineSpectrumFrame, engine: Engine) -> None:
+    # Measure time spent preparing + sending spectrum payloads.
+    start_time = time.perf_counter()
     display_frame = apply_spectrum_display(frame, engine.display_config())
     payload_id = uuid.uuid4()
     meta = engine_spectrum_meta_to_wire(
@@ -103,9 +108,14 @@ async def _send_spectrum(session: _ClientSession, frame: EngineSpectrumFrame, en
     payload = display_frame.y.astype("<f4", copy=False).tobytes()
     header = make_payload_header(BINARY_KIND_SPECTRUM, payload_id, display_frame.y.size)
     await session.websocket.send_bytes(header + payload)
+    # Record per-frame processing duration for rolling averages.
+    processing_ms = (time.perf_counter() - start_time) * 1000.0
+    engine.record_frame_processed("spectrum", processing_ms)
 
 
 async def _send_spectrogram(session: _ClientSession, frame: EngineSpectrogramFrame, engine: Engine) -> None:
+    # Measure time spent preparing + sending spectrogram payloads.
+    start_time = time.perf_counter()
     display_frame, quantized, dtype = apply_spectrogram_display(frame, engine.display_config())
     payload_id = uuid.uuid4()
     meta = engine_spectrogram_meta_to_wire(
@@ -124,6 +134,9 @@ async def _send_spectrogram(session: _ClientSession, frame: EngineSpectrogramFra
         payload = display_frame.row_db.astype("<f4", copy=False).tobytes()
     header = make_payload_header(BINARY_KIND_SPECTROGRAM, payload_id, display_frame.row_db.size)
     await session.websocket.send_bytes(header + payload)
+    # Record per-frame processing duration for rolling averages.
+    processing_ms = (time.perf_counter() - start_time) * 1000.0
+    engine.record_frame_processed("spectrogram", processing_ms)
 
 
 async def _send_frame(session: _ClientSession, frame: EngineFrame, engine: Engine) -> None:

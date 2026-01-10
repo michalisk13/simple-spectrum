@@ -12,6 +12,8 @@ to clients.
 * Owns the worker lifecycle for DSP processing.
 * Owns the current config and applies updates transactionally.
 * Publishes internal engine frames for clients (PyQt and FastAPI).
+* Maintains rolling performance metrics (FPS, processing time, drop counts) and
+  exposes them via status frames.
 
 #### Worker (DSP thread)
 * Performs SDR reads and DSP computations (FFT, detectors, spectrogram slices).
@@ -22,6 +24,7 @@ to clients.
 * Defines the Protocol Contract v1.0 JSON schema for wire frames.
 * Defines binary payload header helpers (SPAY header).
 * Defines internal engine frame dataclasses and helpers to serialize to wire frames.
+* Status frames include performance metrics alongside configuration state.
 
 #### PyQt UI (reference client)
 * Subscribes to engine frames and renders spectrum/spectrogram plots.

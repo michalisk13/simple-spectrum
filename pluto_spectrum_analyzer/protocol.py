@@ -100,6 +100,11 @@ def protocol_json_schema() -> dict[str, Any]:
                     "vbw_hz": {"type": "number"},
                     "update_hz_target": {"type": "number"},
                     "update_hz_actual": {"type": "number"},
+                    "spectrum_fps": {"type": "number"},
+                    "spectrogram_fps": {"type": "number"},
+                    "frame_drop_count": {"type": "integer", "minimum": 0},
+                    "processing_ms": {"type": "number"},
+                    "avg_processing_ms": {"type": "number"},
                     "frame_processing_ms_avg": {"type": "number"},
                     "frames_dropped": {"type": "integer", "minimum": 0},
                     "spectrogram_enabled": {"type": "boolean"},
@@ -128,6 +133,11 @@ def protocol_json_schema() -> dict[str, Any]:
                     "vbw_hz",
                     "update_hz_target",
                     "update_hz_actual",
+                    "spectrum_fps",
+                    "spectrogram_fps",
+                    "frame_drop_count",
+                    "processing_ms",
+                    "avg_processing_ms",
                     "frame_processing_ms_avg",
                     "frames_dropped",
                     "spectrogram_enabled",
@@ -450,6 +460,11 @@ class EngineStatusFrame:
     vbw_hz: float
     update_hz_target: float
     update_hz_actual: float
+    spectrum_fps: float
+    spectrogram_fps: float
+    frame_drop_count: int
+    processing_ms: float
+    avg_processing_ms: float
     frame_processing_ms_avg: float
     frames_dropped: int
     spectrogram_enabled: bool
@@ -574,6 +589,11 @@ def engine_status_to_wire(
             "vbw_hz": frame.vbw_hz,
             "update_hz_target": frame.update_hz_target,
             "update_hz_actual": frame.update_hz_actual,
+            "spectrum_fps": frame.spectrum_fps,
+            "spectrogram_fps": frame.spectrogram_fps,
+            "frame_drop_count": frame.frame_drop_count,
+            "processing_ms": frame.processing_ms,
+            "avg_processing_ms": frame.avg_processing_ms,
             "frame_processing_ms_avg": frame.frame_processing_ms_avg,
             "frames_dropped": frame.frames_dropped,
             "spectrogram_enabled": frame.spectrogram_enabled,
