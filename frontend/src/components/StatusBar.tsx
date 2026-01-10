@@ -39,6 +39,13 @@ function StatusBar({
   const SidebarIcon = sidebarOpened
     ? IconLayoutSidebarLeftCollapse
     : IconLayoutSidebarRightCollapse;
+  const connectionLabel = isConnecting
+    ? connectionState === "connected"
+      ? "Disconnecting..."
+      : "Connecting..."
+    : connectionState === "connected"
+      ? "Disconnect"
+      : "Connect";
 
   return (
     <Group justify="space-between" align="center" className="status-bar">
@@ -107,7 +114,7 @@ function StatusBar({
             loading={isConnecting}
             disabled={isRefreshing}
           >
-            {connectionState === "connected" ? "Disconnect" : "Connect"}
+            {connectionLabel}
           </Button>
         </Group>
       </Group>
