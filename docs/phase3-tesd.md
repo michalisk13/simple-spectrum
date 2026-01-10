@@ -55,6 +55,9 @@ def _print_status(status: dict) -> None:
         f"center_hz={status.get('center_hz')}",
         f"span_hz={status.get('span_hz')}",
         f"fft_size={status.get('fft_size')}",
+        f"spectrum_fps={status.get('spectrum_fps')}",
+        f"spectrogram_fps={status.get('spectrogram_fps')}",
+        f"processing_ms={status.get('processing_ms')}",
     )
 
 

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Callable, Dict, Optional
+from collections import deque
+from dataclasses import replace
+from typing import Callable, Deque, Dict, Optional, Tuple
 
 from pluto_spectrum_analyzer.config import SpectrumConfig
 from pluto_spectrum_analyzer.display import DisplayConfig
@@ -24,6 +26,9 @@ FrameCallback = Callable[[EngineFrame], None]
 class Engine:
     """Owns SDR lifecycle, worker lifecycle, and streaming frames."""
 
+    # Rolling metrics window for FPS and processing-time averages.
+    _METRICS_WINDOW_S = 5.0
+
     def __init__(self, cfg: SpectrumConfig):
         self.cfg = cfg
         self._cfg_lock = threading.Lock()
@@ -31,6 +36,16 @@ class Engine:
         self._proc = SpectrumProcessor(cfg.fft_size, cfg.window)
         self._worker: Optional[SpectrumWorker] = None
         self._subscribers: list[FrameCallback] = []
+        self._metrics_lock = threading.Lock()
+        # (timestamp, processing_ms) samples for rolling averages.
+        self._processing_samples: Deque[Tuple[float, float]] = deque()
+        # Frame timestamps to compute rolling FPS.
+        self._spectrum_frames: Deque[float] = deque()
+        self._spectrogram_frames: Deque[float] = deque()
+        # Total frames dropped by the WS fanout queues.
+        self._frames_dropped_total = 0
+        # Latest processing duration sample (ms) for status snapshots.
+        self._last_processing_ms = 0.0
         self._stream_meta: Dict[str, object] = {
             "spectrogram_enabled": False,
             "spectrogram_rate": 15.0,
@@ -56,6 +71,11 @@ class Engine:
             vbw_hz=float(self.cfg.vbw_hz),
             update_hz_target=self._target_update_hz(),
             update_hz_actual=0.0,
+            spectrum_fps=0.0,
+            spectrogram_fps=0.0,
+            frame_drop_count=0,
+            processing_ms=0.0,
+            avg_processing_ms=0.0,
             frame_processing_ms_avg=0.0,
             frames_dropped=0,
             spectrogram_enabled=bool(self._stream_meta["spectrogram_enabled"]),
@@ -74,7 +94,7 @@ class Engine:
             self._subscribers.remove(callback)
 
     def status(self) -> EngineStatusFrame:
-        return self._status
+        return self._status_with_metrics()
 
     @property
     def last_error(self) -> Optional[EngineErrorFrame]:
@@ -211,6 +231,11 @@ class Engine:
             vbw_hz=float(self.cfg.vbw_hz),
             update_hz_target=self._target_update_hz(),
             update_hz_actual=0.0,
+            spectrum_fps=0.0,
+            spectrogram_fps=0.0,
+            frame_drop_count=0,
+            processing_ms=0.0,
+            avg_processing_ms=0.0,
             frame_processing_ms_avg=0.0,
             frames_dropped=0,
             spectrogram_enabled=bool(self._stream_meta["spectrogram_enabled"]),
@@ -218,7 +243,7 @@ class Engine:
             spectrogram_time_span_s=float(self._stream_meta["spectrogram_time_span_s"]),
             message=message,
         )
-        self._emit(self._status)
+        self._emit(self._status_with_metrics())
 
     def _emit(self, frame: EngineFrame) -> None:
         for callback in list(self._subscribers):
@@ -226,6 +251,67 @@ class Engine:
                 callback(frame)
             except Exception:
                 continue
+
+    def record_frame_processed(self, frame_kind: str, processing_ms: float) -> None:
+        """Record processing duration for a display frame."""
+        now = time.monotonic()
+        with self._metrics_lock:
+            self._last_processing_ms = processing_ms
+            self._processing_samples.append((now, processing_ms))
+            if frame_kind == "spectrum":
+                self._spectrum_frames.append(now)
+            elif frame_kind == "spectrogram":
+                self._spectrogram_frames.append(now)
+            self._prune_metrics(now)
+
+    def record_frame_dropped(self, count: int = 1) -> None:
+        """Track dropped frames (e.g., when WS clients lag)."""
+        with self._metrics_lock:
+            self._frames_dropped_total += count
+
+    def _status_with_metrics(self) -> EngineStatusFrame:
+        metrics = self._metrics_snapshot()
+        return replace(
+            self._status,
+            update_hz_actual=metrics["spectrum_fps"],
+            spectrum_fps=metrics["spectrum_fps"],
+            spectrogram_fps=metrics["spectrogram_fps"],
+            frame_drop_count=metrics["frame_drop_count"],
+            processing_ms=metrics["processing_ms"],
+            avg_processing_ms=metrics["avg_processing_ms"],
+            frame_processing_ms_avg=metrics["avg_processing_ms"],
+            frames_dropped=metrics["frame_drop_count"],
+        )
+
+    def _metrics_snapshot(self) -> Dict[str, float | int]:
+        now = time.monotonic()
+        with self._metrics_lock:
+            # Remove stale samples before computing rolling statistics.
+            self._prune_metrics(now)
+            avg_processing = (
+                sum(sample for _, sample in self._processing_samples) / len(self._processing_samples)
+                if self._processing_samples
+                else 0.0
+            )
+            spectrum_fps = len(self._spectrum_frames) / self._METRICS_WINDOW_S
+            spectrogram_fps = len(self._spectrogram_frames) / self._METRICS_WINDOW_S
+            return {
+                "spectrum_fps": spectrum_fps,
+                "spectrogram_fps": spectrogram_fps,
+                "frame_drop_count": self._frames_dropped_total,
+                "processing_ms": self._last_processing_ms,
+                "avg_processing_ms": avg_processing,
+            }
+
+    def _prune_metrics(self, now: float) -> None:
+        cutoff = now - self._METRICS_WINDOW_S
+        # Remove samples older than the rolling window.
+        while self._processing_samples and self._processing_samples[0][0] < cutoff:
+            self._processing_samples.popleft()
+        while self._spectrum_frames and self._spectrum_frames[0] < cutoff:
+            self._spectrum_frames.popleft()
+        while self._spectrogram_frames and self._spectrogram_frames[0] < cutoff:
+            self._spectrogram_frames.popleft()
 
     @staticmethod
     def _now_ns() -> int:

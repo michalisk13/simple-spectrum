@@ -24,6 +24,12 @@ These require a connected SDR and are not suitable for CI:
    * Enable spectrogram panel and adjust rate/time-span.
    * Verify waterfall updates and colormap selection works.
 
+4. **Status metrics (server mode)**
+   * Start the FastAPI server and connect a WebSocket client.
+   * Confirm the initial `status` frame includes `spectrum_fps`,
+     `spectrogram_fps`, `processing_ms`, and `avg_processing_ms`.
+   * Confirm `frame_drop_count` increases if you intentionally slow a client.
+
 ### Phase-by-phase QA scenarios
 
 #### Phase 1: Engine and protocol stabilization
@@ -43,6 +49,7 @@ These require a connected SDR and are not suitable for CI:
 * Spectrum meta JSON precedes binary payload.
 * Payload IDs are unique, seq increments per message.
 * Multiple clients can connect without crashing the server.
+* StatusFrame includes rolling performance metrics for FPS and processing time.
 * Quick script available in `docs/phase3-tesd.md`.
 
 #### Phase 4: Decimation and quantization
