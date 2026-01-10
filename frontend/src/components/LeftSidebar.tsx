@@ -2,7 +2,7 @@ import { Badge, Box, Divider, Group, Stack, Text } from "@mantine/core";
 import {
   IconAdjustments,
   IconRadio,
-  IconSliders,
+  IconAdjustmentsHorizontal, // 1. Change IconSliders to this
   IconStar,
 } from "@tabler/icons-react";
 
@@ -17,6 +17,7 @@ const sectionHeaderProps = {
 function LeftSidebar() {
   return (
     <Stack gap="lg" className="sidebar">
+      {/* ... top section remains the same ... */}
       <Group justify="space-between" align="center">
         <Group gap="sm">
           <IconRadio size={20} />
@@ -45,7 +46,8 @@ function LeftSidebar() {
 
       <Box>
         <Group gap="xs" mb="sm">
-          <IconSliders size={16} />
+          {/* 2. Update the usage here as well */}
+          <IconAdjustmentsHorizontal size={16} />
           <Text {...sectionHeaderProps}>Frequency</Text>
         </Group>
         <Stack gap="xs">
