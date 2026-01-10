@@ -64,5 +64,12 @@ asyncio.run(main())
 ## Notes
 
 - Set a different WebSocket URL by changing `BASE_URL` in the script.
-- If the SDR is disconnected, the server still sends the StatusFrame and may pause before
-  sending spectrum/spectrogram frames.
+- If the SDR is **disconnected**:
+  - The first message is still a `status` frame with `connected=false` and
+    `message="disconnected"` (or `"connection failed"` if the SDR connect attempt failed).
+  - Spectrum/spectrogram frames are not emitted because the worker is not running.
+  - The script will block waiting for metadata after the initial status; that is expected.
+- If the SDR is **connected**:
+  - The first message is a `status` frame with `connected=true` and `message="connected"`.
+  - You should then see alternating `spectrum_meta` and `spectrogram_meta` JSON frames, each
+    immediately followed by a binary payload that starts with the `SPAY` header.
