@@ -183,6 +183,8 @@ class SpectrumWorker(threading.Thread):
                 spectrogram_frame = EngineSpectrogramFrame(
                     ts_monotonic_ns=ts_monotonic_ns,
                     row_ts_monotonic_ns=ts_monotonic_ns,
+                    freq_start_hz=freq_start,
+                    freq_stop_hz=freq_stop,
                     row_db=spectrogram_db,
                     col_count=int(len(spectrogram_db)),
                     db_min=float(stream_meta.get("spectrogram_min_db", -120.0)),

@@ -1,8 +1,169 @@
-"""WebSocket handlers for streaming frames (Phase 3 placeholder)."""
+"""WebSocket handlers for streaming frames."""
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+import asyncio
+from dataclasses import dataclass
+import uuid
+
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+from pluto_spectrum_analyzer.engine import Engine
+from pluto_spectrum_analyzer.protocol import (
+    BINARY_KIND_SPECTROGRAM,
+    BINARY_KIND_SPECTRUM,
+    EngineErrorFrame,
+    EngineFrame,
+    EngineMarkerFrame,
+    EngineSpectrogramFrame,
+    EngineSpectrumFrame,
+    EngineStatusFrame,
+    engine_error_to_wire,
+    engine_markers_to_wire,
+    engine_spectrogram_meta_to_wire,
+    engine_spectrum_meta_to_wire,
+    engine_status_to_wire,
+    make_payload_header,
+)
 
 
 router = APIRouter()
+
+
+@dataclass
+class _ClientSession:
+    websocket: WebSocket
+    queue: asyncio.Queue[EngineFrame]
+    session_id: uuid.UUID
+    seq: int = 0
+
+    def next_seq(self) -> int:
+        self.seq += 1
+        return self.seq
+
+
+class _StreamHub:
+    """Fan out engine frames to multiple WebSocket clients."""
+
+    def __init__(self, engine: Engine, loop: asyncio.AbstractEventLoop) -> None:
+        self._engine = engine
+        self._loop = loop
+        self._clients: list[_ClientSession] = []
+        # Subscribe once so engine frames are broadcast to all clients.
+        self._engine.subscribe(self.publish)
+
+    def register(self, session: _ClientSession) -> None:
+        self._clients.append(session)
+
+    def unregister(self, session: _ClientSession) -> None:
+        if session in self._clients:
+            self._clients.remove(session)
+
+    def publish(self, frame: EngineFrame) -> None:
+        # Engine callbacks run on worker threads, so hop back to the event loop.
+        self._loop.call_soon_threadsafe(self._enqueue_frame, frame)
+
+    def _enqueue_frame(self, frame: EngineFrame) -> None:
+        for session in list(self._clients):
+            try:
+                session.queue.put_nowait(frame)
+            except asyncio.QueueFull:
+                # Drop frames if a client is slow to prevent blocking others.
+                continue
+
+
+def _get_hub(websocket: WebSocket) -> _StreamHub:
+    app = websocket.app
+    hub = getattr(app.state, "ws_hub", None)
+    if hub is None:
+        hub = _StreamHub(app.state.engine, asyncio.get_running_loop())
+        app.state.ws_hub = hub
+    return hub
+
+
+async def _send_status(session: _ClientSession, engine: Engine) -> None:
+    status = engine.status()
+    payload = engine_status_to_wire(status, seq=session.next_seq(), session_id=session.session_id)
+    await session.websocket.send_json(payload)
+
+
+async def _send_spectrum(session: _ClientSession, frame: EngineSpectrumFrame) -> None:
+    payload_id = uuid.uuid4()
+    meta = engine_spectrum_meta_to_wire(
+        frame,
+        seq=session.next_seq(),
+        session_id=session.session_id,
+        payload_id=payload_id,
+    )
+    await session.websocket.send_json(meta)
+
+    payload = frame.y.astype("<f4", copy=False).tobytes()
+    header = make_payload_header(BINARY_KIND_SPECTRUM, payload_id, frame.y.size)
+    await session.websocket.send_bytes(header + payload)
+
+
+async def _send_spectrogram(session: _ClientSession, frame: EngineSpectrogramFrame) -> None:
+    payload_id = uuid.uuid4()
+    meta = engine_spectrogram_meta_to_wire(
+        frame,
+        seq=session.next_seq(),
+        session_id=session.session_id,
+        payload_id=payload_id,
+        quantized=False,
+        dtype="f32",
+    )
+    await session.websocket.send_json(meta)
+
+    payload = frame.row_db.astype("<f4", copy=False).tobytes()
+    header = make_payload_header(BINARY_KIND_SPECTROGRAM, payload_id, frame.row_db.size)
+    await session.websocket.send_bytes(header + payload)
+
+
+async def _send_frame(session: _ClientSession, frame: EngineFrame) -> None:
+    if isinstance(frame, EngineStatusFrame):
+        payload = engine_status_to_wire(frame, seq=session.next_seq(), session_id=session.session_id)
+        await session.websocket.send_json(payload)
+        return
+
+    if isinstance(frame, EngineSpectrumFrame):
+        await _send_spectrum(session, frame)
+        return
+
+    if isinstance(frame, EngineSpectrogramFrame):
+        await _send_spectrogram(session, frame)
+        return
+
+    if isinstance(frame, EngineMarkerFrame):
+        payload = engine_markers_to_wire(frame, seq=session.next_seq(), session_id=session.session_id)
+        await session.websocket.send_json(payload)
+        return
+
+    if isinstance(frame, EngineErrorFrame):
+        payload = engine_error_to_wire(frame, seq=session.next_seq(), session_id=session.session_id)
+        await session.websocket.send_json(payload)
+
+
+@router.websocket("/ws/stream")
+async def stream(websocket: WebSocket) -> None:
+    await websocket.accept()
+    session = _ClientSession(
+        websocket=websocket,
+        queue=asyncio.Queue(maxsize=64),
+        session_id=uuid.uuid4(),
+    )
+    engine: Engine = websocket.app.state.engine
+
+    # Send status immediately before joining the broadcast stream.
+    await _send_status(session, engine)
+    hub = _get_hub(websocket)
+    hub.register(session)
+
+    try:
+        while True:
+            frame = await session.queue.get()
+            await _send_frame(session, frame)
+    except WebSocketDisconnect:
+        # Client disconnected; cleanup happens in finally.
+        pass
+    finally:
+        hub.unregister(session)

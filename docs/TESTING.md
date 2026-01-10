@@ -43,6 +43,7 @@ These require a connected SDR and are not suitable for CI:
 * Spectrum meta JSON precedes binary payload.
 * Payload IDs are unique, seq increments per message.
 * Multiple clients can connect without crashing the server.
+* Quick script available in `docs/phase3-tesd.md`.
 
 #### Phase 4: Decimation and quantization
 * Spectrum output capped to max bins while preserving endpoints.
