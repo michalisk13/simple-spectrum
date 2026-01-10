@@ -31,16 +31,16 @@ to clients.
 * Never instantiates the SDR or worker directly.
 * Acts as the reference client until the web UI reaches feature parity.
 
-#### Web server (future)
+#### Web server
 * FastAPI REST for control (config, status, connect/disconnect).
 * WebSocket for real-time streaming of meta + binary payload frames.
 * Uses the same Engine as PyQt for consistent behavior.
 
-### Data flow (current + target)
+### Data flow
 1. PyQt or FastAPI calls Engine methods (connect/apply_config).
 2. Engine starts Worker and receives engine frames.
-3. Engine publishes engine frames to subscribers (PyQt now, FastAPI later).
-4. FastAPI WebSocket will convert engine frames to wire frames and stream with
+3. Engine publishes engine frames to subscribers (PyQt and FastAPI).
+4. FastAPI WebSocket converts engine frames to wire frames and streams with
    metadata + binary payloads.
 
 ### No-raw-IQ rule
@@ -48,6 +48,6 @@ to clients.
   and metadata.
 * Raw IQ never leaves the Python backend.
 
-### Performance guardrails (future)
+### Performance guardrails
 * Decimation and quantization in the Engine for stable bandwidth at high FFT sizes.
 * Wire frames carry metadata + binary payloads in the Protocol Contract v1.0 format.
