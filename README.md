@@ -14,16 +14,22 @@ Pluto Spectrum Analyzer is a real-time FFT spectrum viewer for the ADALM-Pluto S
 
 ## Requirements
 - Python 3.9+
-- Packages: pyadi-iio, numpy, pyqtgraph, PyQt5/PyQt6
+- Packages: pyadi-iio, numpy, pyqtgraph, PyQt5/PyQt6, jsonschema
 - OS: Windows and Linux are supported (Linux recommended for USB gadget mode)
 
 ## Install
 1. Create a virtual environment (recommended).
 2. Install dependencies:
    ```bash
-   python -m pip install pyadi-iio numpy pyqtgraph PyQt6
+   python -m pip install pyadi-iio numpy pyqtgraph PyQt6 jsonschema
    ```
 3. Ensure the Pluto SDR is reachable via USB or Ethernet gadget mode.
+
+### Optional developer dependencies
+If you want to run the unit tests:
+```bash
+python -m pip install pytest
+```
 
 ## How to run
 ```bash
