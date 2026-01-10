@@ -79,6 +79,9 @@ class Engine:
     def last_error(self) -> Optional[EngineErrorFrame]:
         return self._last_error
 
+    def stream_metadata(self) -> Dict[str, object]:
+        return dict(self._stream_meta)
+
     def connect(self, uri: Optional[str] = None) -> bool:
         if self._sdr is not None:
             return True

@@ -17,13 +17,21 @@ Pluto Spectrum Analyzer is a real-time FFT spectrum viewer for the ADALM-Pluto S
 - Packages: pyadi-iio, numpy, pyqtgraph, PyQt5/PyQt6, jsonschema
 - OS: Windows and Linux are supported (Linux recommended for USB gadget mode)
 
+### Server mode dependencies
+If you want to run the headless FastAPI server:
+- Packages: fastapi, uvicorn
+
 ## Install
 1. Create a virtual environment (recommended).
 2. Install dependencies:
    ```bash
    python -m pip install pyadi-iio numpy pyqtgraph PyQt6 jsonschema
    ```
-3. Ensure the Pluto SDR is reachable via USB or Ethernet gadget mode.
+3. Optional (server mode):
+   ```bash
+   python -m pip install fastapi uvicorn
+   ```
+4. Ensure the Pluto SDR is reachable via USB or Ethernet gadget mode.
 
 ### Optional developer dependencies
 If you want to run the unit tests:
