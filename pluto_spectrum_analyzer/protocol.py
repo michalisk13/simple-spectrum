@@ -493,6 +493,8 @@ class EngineSpectrogramFrame:
 
     ts_monotonic_ns: int
     row_ts_monotonic_ns: int
+    freq_start_hz: float
+    freq_stop_hz: float
     row_db: np.ndarray
     col_count: int
     db_min: float

@@ -6,7 +6,7 @@ Minimal smoke checks for the Phase 2 REST endpoints.
 
 1. Start the FastAPI server (example):
    ```bash
-   python -m uvicorn pluto_spectrum_analyzer.server.app:create_app --factory --host 0.0.0.0 --port 8000
+   python3 -m uvicorn pluto_spectrum_analyzer.server.app:create_app --factory --host 0.0.0.0 --port 8000
    ```
 
 ## Minimal curl script
