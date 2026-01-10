@@ -62,6 +62,8 @@ export const useWebSocket = (): UseWebSocketResult => {
 
     return () => {
       // Close the socket when the component unmounts.
+      // Note: React Strict Mode runs effects twice in dev, so quick connect/
+      // disconnect cycles are normal during development.
       client.disconnect();
       clientRef.current = null;
     };

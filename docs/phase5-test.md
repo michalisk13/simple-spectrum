@@ -59,3 +59,8 @@ backend restarts without freezing the UI.
 - Browser DevTools may log a WebSocket error while the backend is offline or
   restarting; this is expected as long as the UI remains responsive and the
   client reconnects once the backend is back online.
+- In React development mode (Strict Mode), effect mount/unmount cycles can
+  create quick connect/disconnect logs in the backend; this is normal during
+  development and should settle in production builds.
+- If the backend is not running yet, Vite may log `ECONNREFUSED` for `/api/status`
+  until the backend becomes available.
