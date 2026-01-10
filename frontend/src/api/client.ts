@@ -10,6 +10,7 @@ import type {
   ApplyPresetResponse,
   ConfigUpdatePayload,
   EngineError,
+  SdrCommandRequest,
 } from "./types";
 import { notifyApiError } from "../components/notifications/notify";
 
@@ -86,12 +87,7 @@ export class ApiClient {
       const response = await this.request<ApiStatusResponse>("/status");
 
       // Surface engine-reported errors through notifications.
-      if (response.error) {
-        this.onError({
-          message: response.error.message,
-          details: response.error.error_code,
-        });
-      }
+      this.handleEngineError(response.error);
 
       return response;
     } catch (error) {
@@ -103,12 +99,13 @@ export class ApiClient {
   // Connect to the SDR with an optional URI override.
   async connectSdr(uri?: string): Promise<ApiCommandResponse | null> {
     try {
+      const payload: SdrCommandRequest | undefined = uri ? { uri } : undefined;
       const response = await this.request<ApiCommandResponse>("/sdr/connect", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: uri ? JSON.stringify({ uri }) : undefined,
+        body: payload ? JSON.stringify(payload) : undefined,
       });
       this.handleCommandResponse(response);
       return response;
@@ -149,12 +146,13 @@ export class ApiClient {
   // Test connectivity to the SDR without maintaining a connection.
   async testSdr(uri?: string): Promise<ApiCommandResponse | null> {
     try {
+      const payload: SdrCommandRequest | undefined = uri ? { uri } : undefined;
       const response = await this.request<ApiCommandResponse>("/sdr/test", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: uri ? JSON.stringify({ uri }) : undefined,
+        body: payload ? JSON.stringify(payload) : undefined,
       });
       this.handleCommandResponse(response);
       return response;
@@ -218,7 +216,7 @@ export class ApiClient {
 
   private handleCommandResponse(response: ApiCommandResponse): void {
     if (response.error) {
-      this.notifyEngineError(response.error);
+      this.handleEngineError(response.error);
       return;
     }
     if (!response.ok) {
@@ -226,17 +224,13 @@ export class ApiClient {
     }
   }
 
-  private notifyEngineError(error: EngineError | null | undefined): void {
+  private handleEngineError(error: EngineError | null | undefined): void {
     if (!error) {
       return;
     }
-    const detailParts = [
-      error.error_code,
-      error.details ? JSON.stringify(error.details) : undefined,
-    ].filter(Boolean);
     this.onError({
       message: error.message,
-      details: detailParts.length ? detailParts.join(" • ") : undefined,
+      details: error.error_code,
     });
   }
 }

@@ -25,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { ApiClient } from "../api/client";
-import type { ApplyPresetRequest } from "../api/types";
+import type { ApplyPresetRequest, PresetName } from "../api/types";
 
 type LeftSidebarProps = {
   connectionState: "connected" | "disconnected" | "checking";
@@ -39,13 +39,13 @@ const sectionHeaderProps = {
   className: "sidebar-section-title",
 } as const;
 
-const fallbackPresets = ["Fast View", "Wide Scan", "Measure"];
+const fallbackPresets: PresetName[] = ["Fast View", "Wide Scan", "Measure"];
 
 function LeftSidebar({ connectionState }: LeftSidebarProps) {
   const apiClient = useMemo(() => new ApiClient(), []);
-  const [presets, setPresets] = useState<string[]>(fallbackPresets);
+  const [presets, setPresets] = useState<PresetName[]>(fallbackPresets);
   const [isLoadingPresets, setIsLoadingPresets] = useState(false);
-  const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [activePreset, setActivePreset] = useState<PresetName | null>(null);
   const [measureDetector, setMeasureDetector] = useState("Peak");
 
   useEffect(() => {
@@ -66,17 +66,20 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
       return;
     }
     setActivePreset(payload.name);
-    await apiClient.applyPreset(payload);
-    setActivePreset(null);
+    try {
+      await apiClient.applyPreset(payload);
+    } finally {
+      setActivePreset(null);
+    }
   };
 
-  const renderPresetButton = (presetName: string, variant: "light" | "outline") => (
+  const renderPresetButton = (presetName: PresetName, variant: "light" | "outline") => (
     <Button
       key={presetName}
       size="xs"
       variant={variant}
       fullWidth
-      loading={activePreset === presetName}
+      loading={isLoadingPresets || activePreset === presetName}
       disabled={isLoadingPresets || Boolean(activePreset)}
       onClick={() =>
         applyPreset({

@@ -132,7 +132,10 @@ export type ApiConfigResponse = {
 };
 
 // Payload for POST /api/config (partial updates).
-export type ConfigUpdatePayload = Partial<SpectrumConfig> & Partial<StreamMetadata>;
+export type ApiConfigRequest = Partial<SpectrumConfig> & Partial<StreamMetadata>;
+
+// Payload for POST /api/config (partial updates).
+export type ConfigUpdatePayload = ApiConfigRequest;
 
 // Standard ok/status response from SDR commands.
 export type ApiCommandResponse = {
@@ -142,14 +145,22 @@ export type ApiCommandResponse = {
   message?: string;
 };
 
+// Payload for POST /api/sdr/connect and /api/sdr/test.
+export type SdrCommandRequest = {
+  uri?: string;
+};
+
+// Known preset names returned by the backend.
+export type PresetName = "Fast View" | "Wide Scan" | "Measure";
+
 // List of preset names from GET /api/presets.
 export type ApiPresetsResponse = {
-  presets: string[];
+  presets: PresetName[];
 };
 
 // Payload for POST /api/presets/apply.
 export type ApplyPresetRequest = {
-  name: string;
+  name: PresetName;
   measure_detector?: string;
 };
 

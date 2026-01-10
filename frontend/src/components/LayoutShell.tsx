@@ -43,6 +43,7 @@ function LayoutShell() {
       return;
     }
     setIsConnecting(true);
+    setIsChecking(true);
     const response = status?.connected
       ? await apiClient.disconnectSdr()
       : await apiClient.connectSdr();
@@ -50,6 +51,7 @@ function LayoutShell() {
       setStatus(response.status);
     }
     setIsConnecting(false);
+    setIsChecking(false);
   }, [apiClient, isConnecting, status]);
 
   // Load the initial status snapshot when the layout mounts.
