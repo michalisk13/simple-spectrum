@@ -2,17 +2,14 @@ import {
   Badge,
   Box,
   Button,
-  Checkbox,
   Divider,
   Group,
   NumberInput,
   Paper,
-  SegmentedControl,
   Select,
   Stack,
   Switch,
   Text,
-  TextInput,
 } from "@mantine/core";
 import {
   IconAdjustments,
@@ -20,15 +17,27 @@ import {
   IconChartHistogram,
   IconRadio,
   IconStar,
-  IconTarget,
   IconWaveSine,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { ApiClient } from "../api/client";
-import type { ApplyPresetRequest, PresetName } from "../api/types";
+import type {
+  ApiConfigResponse,
+  ApplyPresetRequest,
+  ApplyPresetResponse,
+  ConfigUpdatePayload,
+  PresetName,
+  SpectrumConfig,
+  StreamMetadata,
+} from "../api/types";
 
 type LeftSidebarProps = {
   connectionState: "connected" | "disconnected" | "checking";
+  config: SpectrumConfig | null;
+  stream: StreamMetadata | null;
+  isConfigLoading: boolean;
+  onUpdateConfig: (payload: ConfigUpdatePayload) => Promise<ApiConfigResponse | null>;
+  onApplyPreset: (payload: ApplyPresetRequest) => Promise<ApplyPresetResponse | null>;
 };
 
 const sectionHeaderProps = {
@@ -41,12 +50,80 @@ const sectionHeaderProps = {
 
 const fallbackPresets: PresetName[] = ["Fast View", "Wide Scan", "Measure"];
 
-function LeftSidebar({ connectionState }: LeftSidebarProps) {
+type FormState = {
+  centerHz: number;
+  spanHz: number;
+  rbwMode: string;
+  rbwHz: number;
+  vbwMode: string;
+  vbwHz: number;
+  window: string;
+  detector: string;
+  traceType: string;
+  avgCount: number;
+  avgMode: string;
+  measurementMode: boolean;
+  dcRemove: boolean;
+  gainMode: string;
+  gainDb: number;
+  refLevelDb: number;
+  displayRangeDb: number;
+  trace2Enabled: boolean;
+  spectrogramEnabled: boolean;
+  spectrogramRate: number;
+  spectrogramTimeSpan: number;
+  spectrogramMode: string;
+  spectrogramCmap: string;
+  spectrogramMinDb: number;
+  spectrogramMaxDb: number;
+};
+
+const buildFormState = (
+  config: SpectrumConfig,
+  stream: StreamMetadata,
+): FormState => ({
+  centerHz: config.center_hz,
+  spanHz: config.sample_rate_hz,
+  rbwMode: config.rbw_mode,
+  rbwHz: config.rbw_hz,
+  vbwMode: config.vbw_mode,
+  vbwHz: config.vbw_hz,
+  window: config.window,
+  detector: config.detector,
+  traceType: config.trace_type,
+  avgCount: config.avg_count,
+  avgMode: config.avg_mode,
+  measurementMode: config.measurement_mode,
+  dcRemove: config.dc_remove,
+  gainMode: config.gain_mode,
+  gainDb: config.gain_db,
+  refLevelDb: config.ref_level_db,
+  displayRangeDb: config.display_range_db,
+  trace2Enabled: config.trace2_enabled,
+  spectrogramEnabled: stream.spectrogram_enabled,
+  spectrogramRate: stream.spectrogram_rate,
+  spectrogramTimeSpan: stream.spectrogram_time_span_s,
+  spectrogramMode: config.spectrogram_mode,
+  spectrogramCmap: stream.spectrogram_cmap,
+  spectrogramMinDb: stream.spectrogram_min_db,
+  spectrogramMaxDb: stream.spectrogram_max_db,
+});
+
+function LeftSidebar({
+  connectionState,
+  config,
+  stream,
+  isConfigLoading,
+  onUpdateConfig,
+  onApplyPreset,
+}: LeftSidebarProps) {
   const apiClient = useMemo(() => new ApiClient(), []);
   const [presets, setPresets] = useState<PresetName[]>(fallbackPresets);
   const [isLoadingPresets, setIsLoadingPresets] = useState(false);
   const [activePreset, setActivePreset] = useState<PresetName | null>(null);
   const [measureDetector, setMeasureDetector] = useState("Peak");
+  const [formState, setFormState] = useState<FormState | null>(null);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
 
   useEffect(() => {
     const loadPresets = async () => {
@@ -61,13 +138,24 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
     void loadPresets();
   }, [apiClient]);
 
+  useEffect(() => {
+    if (!config || !stream) {
+      setFormState(null);
+      return;
+    }
+    setFormState(buildFormState(config, stream));
+  }, [config, stream]);
+
   const applyPreset = async (payload: ApplyPresetRequest) => {
     if (activePreset) {
       return;
     }
     setActivePreset(payload.name);
     try {
-      await apiClient.applyPreset(payload);
+      const response = await onApplyPreset(payload);
+      if (!response && config && stream) {
+        setFormState(buildFormState(config, stream));
+      }
     } finally {
       setActivePreset(null);
     }
@@ -91,6 +179,30 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
       {presetName}
     </Button>
   );
+
+  const updateFormField = <Key extends keyof FormState>(
+    key: Key,
+    value: FormState[Key],
+  ) => {
+    setFormState((prev) => (prev ? { ...prev, [key]: value } : prev));
+  };
+
+  const submitConfigUpdate = async (payload: ConfigUpdatePayload) => {
+    if (isSavingConfig) {
+      return;
+    }
+    setIsSavingConfig(true);
+    const response = await onUpdateConfig(payload);
+    setIsSavingConfig(false);
+    if (!response && config && stream) {
+      setFormState(buildFormState(config, stream));
+    }
+  };
+
+  const isConfigReady = Boolean(formState);
+  const controlsDisabled = isConfigLoading || isSavingConfig || !isConfigReady;
+  const spectrogramControlsDisabled =
+    controlsDisabled || !formState?.spectrogramEnabled;
 
   return (
     <Stack gap="lg" className="sidebar">
@@ -122,35 +234,27 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
       <Box>
         <Group gap="xs" mb="sm">
           <IconWaveSine size={16} />
-          <Text {...sectionHeaderProps}>Controls</Text>
+          <Text {...sectionHeaderProps}>Trace</Text>
         </Group>
         <Paper withBorder className="sidebar-section">
           <Stack gap="sm">
-            <Group gap="xs" grow>
-              <Button size="xs" variant="light">
-                Run
-              </Button>
-              <Button size="xs" variant="outline">
-                Single
-              </Button>
-            </Group>
-            <Group gap="xs" grow>
-              <Button size="xs" variant="subtle">
-                Save trace CSV
-              </Button>
-              <Button size="xs" variant="subtle">
-                Calibration
-              </Button>
-            </Group>
             <Group className="sidebar-row" align="center">
               <Text size="xs" c="dimmed">
                 Detector
               </Text>
               <Select
                 data={["RMS", "Peak", "Sample"]}
-                defaultValue="RMS"
+                value={formState?.detector ?? null}
                 size="xs"
                 variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("detector", value);
+                  void submitConfigUpdate({ detector: value });
+                }}
               />
             </Group>
             <Group className="sidebar-row" align="center">
@@ -159,9 +263,17 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
               </Text>
               <Select
                 data={["Clear Write", "Max Hold", "Min Hold", "Average"]}
-                defaultValue="Clear Write"
+                value={formState?.traceType ?? null}
                 size="xs"
                 variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("traceType", value);
+                  void submitConfigUpdate({ trace_type: value });
+                }}
               />
             </Group>
             <Group className="sidebar-row" align="center">
@@ -169,18 +281,67 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
                 Avg count
               </Text>
               <NumberInput
-                defaultValue={10}
+                value={formState?.avgCount ?? 0}
                 min={1}
                 max={50}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("avgCount", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({ avg_count: formState.avgCount });
+                  }
+                }}
+              />
+            </Group>
+            <Group className="sidebar-row" align="center">
+              <Text size="xs" c="dimmed">
+                Avg mode
+              </Text>
+              <Select
+                data={["RMS", "Log"]}
+                value={formState?.avgMode ?? null}
+                size="xs"
+                variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("avgMode", value);
+                  void submitConfigUpdate({ avg_mode: value });
+                }}
               />
             </Group>
             <Group className="sidebar-switches" gap="xs">
-              <Checkbox label="Auto ref level" defaultChecked size="xs" />
-              <Checkbox label="Hold across settings" size="xs" />
-              <Checkbox label="DC remove" defaultChecked size="xs" />
+              <Switch
+                label="Measurement mode"
+                size="xs"
+                checked={formState?.measurementMode ?? false}
+                disabled={controlsDisabled}
+                onChange={(event) => {
+                  const nextValue = event.currentTarget.checked;
+                  updateFormField("measurementMode", nextValue);
+                  void submitConfigUpdate({ measurement_mode: nextValue });
+                }}
+              />
+              <Switch
+                label="DC remove"
+                size="xs"
+                checked={formState?.dcRemove ?? false}
+                disabled={controlsDisabled}
+                onChange={(event) => {
+                  const nextValue = event.currentTarget.checked;
+                  updateFormField("dcRemove", nextValue);
+                  void submitConfigUpdate({ dc_remove: nextValue });
+                }}
+              />
             </Group>
           </Stack>
         </Paper>
@@ -239,17 +400,41 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
         <Paper withBorder className="sidebar-section">
           <Stack gap="sm">
             <Group className="sidebar-grid">
-              <TextInput
+              <NumberInput
                 label="Center (Hz)"
-                defaultValue="2.437e9"
+                value={formState?.centerHz ?? 0}
                 size="xs"
                 variant="filled"
+                hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("centerHz", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({ center_hz: formState.centerHz });
+                  }
+                }}
               />
-              <TextInput
+              <NumberInput
                 label="Span (Hz)"
-                defaultValue="20e6"
+                value={formState?.spanHz ?? 0}
                 size="xs"
                 variant="filled"
+                hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("spanHz", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({ span_hz: formState.spanHz });
+                  }
+                }}
               />
             </Group>
             <Group className="sidebar-row" align="center">
@@ -257,10 +442,38 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
                 RBW
               </Text>
               <Select
-                data={["Manual 4.9 kHz", "Auto", "1 kHz", "10 kHz"]}
-                defaultValue="Manual 4.9 kHz"
+                data={["Manual", "Auto"]}
+                value={formState?.rbwMode ?? null}
                 size="xs"
                 variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("rbwMode", value);
+                  void submitConfigUpdate({ rbw_mode: value });
+                }}
+              />
+            </Group>
+            <Group className="sidebar-row" align="center">
+              <NumberInput
+                label="RBW (Hz)"
+                value={formState?.rbwHz ?? 0}
+                size="xs"
+                variant="filled"
+                hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("rbwHz", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({ rbw_hz: formState.rbwHz });
+                  }
+                }}
               />
             </Group>
             <Group className="sidebar-row" align="center">
@@ -268,10 +481,38 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
                 VBW
               </Text>
               <Select
-                data={["Auto 3 kHz", "1 kHz", "3 kHz", "10 kHz"]}
-                defaultValue="Auto 3 kHz"
+                data={["Manual", "Auto"]}
+                value={formState?.vbwMode ?? null}
                 size="xs"
                 variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("vbwMode", value);
+                  void submitConfigUpdate({ vbw_mode: value });
+                }}
+              />
+            </Group>
+            <Group className="sidebar-row" align="center">
+              <NumberInput
+                label="VBW (Hz)"
+                value={formState?.vbwHz ?? 0}
+                size="xs"
+                variant="filled"
+                hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("vbwHz", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({ vbw_hz: formState.vbwHz });
+                  }
+                }}
               />
             </Group>
             <Group className="sidebar-row" align="center">
@@ -280,32 +521,18 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
               </Text>
               <Select
                 data={["Blackman Harris", "Hann", "Flat Top"]}
-                defaultValue="Blackman Harris"
+                value={formState?.window ?? null}
                 size="xs"
                 variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("window", value);
+                  void submitConfigUpdate({ window: value });
+                }}
               />
-            </Group>
-            <Group className="sidebar-row" align="center">
-              <Text size="xs" c="dimmed">
-                Marker controls
-              </Text>
-              <SegmentedControl
-                size="xs"
-                fullWidth
-                data={[
-                  { label: "Peak", value: "peak" },
-                  { label: "Next ◀", value: "prev" },
-                  { label: "Next ▶", value: "next" },
-                ]}
-              />
-            </Group>
-            <Group gap="xs" grow>
-              <Button size="xs" variant="subtle" leftSection={<IconTarget size={12} />}>
-                Marker to center
-              </Button>
-              <Button size="xs" variant="subtle">
-                Clear
-              </Button>
             </Group>
           </Stack>
         </Paper>
@@ -325,10 +552,23 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
                 Gain mode
               </Text>
               <Select
-                data={["Manual", "Fast Attack", "Slow Attack"]}
-                defaultValue="Manual"
+                data={[
+                  { label: "Manual", value: "manual" },
+                  { label: "Fast Attack", value: "fast_attack" },
+                  { label: "Slow Attack", value: "slow_attack" },
+                  { label: "Hybrid", value: "hybrid" },
+                ]}
+                value={formState?.gainMode ?? null}
                 size="xs"
                 variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("gainMode", value);
+                  void submitConfigUpdate({ gain_mode: value });
+                }}
               />
             </Group>
             <Group className="sidebar-row" align="center">
@@ -336,43 +576,76 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
                 Gain (dB)
               </Text>
               <NumberInput
-                defaultValue={55}
+                value={formState?.gainDb ?? 0}
                 min={0}
                 max={70}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("gainDb", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({ gain_db: formState.gainDb });
+                  }
+                }}
               />
             </Group>
             <Group className="sidebar-grid">
               <NumberInput
                 label="Ref level (dB)"
-                defaultValue={0}
+                value={formState?.refLevelDb ?? 0}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("refLevelDb", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({ ref_level_db: formState.refLevelDb });
+                  }
+                }}
               />
               <NumberInput
                 label="Range (dB)"
-                defaultValue={100}
+                value={formState?.displayRangeDb ?? 0}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("displayRangeDb", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({
+                      display_range_db: formState.displayRangeDb,
+                    });
+                  }
+                }}
               />
             </Group>
-            <Group className="sidebar-row" align="center">
-              <Text size="xs" c="dimmed">
-                Scale
-              </Text>
-              <Select
-                data={["Linear", "Log", "dBFS"]}
-                defaultValue="dBFS"
-                size="xs"
-                variant="filled"
-              />
-            </Group>
-            <Switch label="Show trace 2" size="xs" />
-            <Checkbox label="Hold max trace" size="xs" />
+            <Switch
+              label="Show trace 2"
+              size="xs"
+              checked={formState?.trace2Enabled ?? false}
+              disabled={controlsDisabled}
+              onChange={(event) => {
+                const nextValue = event.currentTarget.checked;
+                updateFormField("trace2Enabled", nextValue);
+                void submitConfigUpdate({ trace2_enabled: nextValue });
+              }}
+            />
           </Stack>
         </Paper>
       </Box>
@@ -392,25 +665,59 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
               </Text>
               <Select
                 data={["PSD (Welch)", "Peak Hold"]}
-                defaultValue="PSD (Welch)"
+                value={formState?.spectrogramMode ?? null}
                 size="xs"
                 variant="filled"
+                disabled={controlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("spectrogramMode", value);
+                  void submitConfigUpdate({ spectrogram_mode: value });
+                }}
               />
             </Group>
             <Group className="sidebar-grid">
               <NumberInput
                 label="Time res (s/s)"
-                defaultValue={15}
+                value={formState?.spectrogramRate ?? 0}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={spectrogramControlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("spectrogramRate", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({
+                      spectrogram_rate: formState.spectrogramRate,
+                    });
+                  }
+                }}
               />
               <NumberInput
                 label="Time span (s)"
-                defaultValue={20}
+                value={formState?.spectrogramTimeSpan ?? 0}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={spectrogramControlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("spectrogramTimeSpan", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({
+                      spectrogram_time_span_s: formState.spectrogramTimeSpan,
+                    });
+                  }
+                }}
               />
             </Group>
             <Group className="sidebar-row" align="center">
@@ -419,39 +726,72 @@ function LeftSidebar({ connectionState }: LeftSidebarProps) {
               </Text>
               <Select
                 data={["viridis", "plasma"]}
-                defaultValue="viridis"
+                value={formState?.spectrogramCmap ?? null}
                 size="xs"
                 variant="filled"
-              />
-            </Group>
-            <Group className="sidebar-row" align="center">
-              <Text size="xs" c="dimmed">
-                Scale
-              </Text>
-              <Select
-                data={["Auto (5-95%)", "Fixed floor", "Manual"]}
-                defaultValue="Auto (5-95%)"
-                size="xs"
-                variant="filled"
+                disabled={spectrogramControlsDisabled}
+                onChange={(value) => {
+                  if (!value) {
+                    return;
+                  }
+                  updateFormField("spectrogramCmap", value);
+                  void submitConfigUpdate({ spectrogram_cmap: value });
+                }}
               />
             </Group>
             <Group className="sidebar-grid">
               <NumberInput
                 label="dB min"
-                defaultValue={-120}
+                value={formState?.spectrogramMinDb ?? 0}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={spectrogramControlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("spectrogramMinDb", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({
+                      spectrogram_min_db: formState.spectrogramMinDb,
+                    });
+                  }
+                }}
               />
               <NumberInput
                 label="dB max"
-                defaultValue={0}
+                value={formState?.spectrogramMaxDb ?? 0}
                 size="xs"
                 variant="filled"
                 hideControls
+                disabled={spectrogramControlsDisabled}
+                onChange={(value) => {
+                  if (typeof value === "number") {
+                    updateFormField("spectrogramMaxDb", value);
+                  }
+                }}
+                onBlur={() => {
+                  if (formState) {
+                    void submitConfigUpdate({
+                      spectrogram_max_db: formState.spectrogramMaxDb,
+                    });
+                  }
+                }}
               />
             </Group>
-            <Switch label="Auto range (±2σ)" size="xs" defaultChecked />
+            <Switch
+              label="Enable spectrogram"
+              size="xs"
+              checked={formState?.spectrogramEnabled ?? false}
+              disabled={controlsDisabled}
+              onChange={(event) => {
+                const nextValue = event.currentTarget.checked;
+                updateFormField("spectrogramEnabled", nextValue);
+                void submitConfigUpdate({ spectrogram_enabled: nextValue });
+              }}
+            />
           </Stack>
         </Paper>
       </Box>

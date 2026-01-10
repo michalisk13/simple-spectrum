@@ -123,6 +123,9 @@ export type StreamMetadata = {
   spectrogram_enabled: boolean;
   spectrogram_rate: number;
   spectrogram_time_span_s: number;
+  spectrogram_min_db: number;
+  spectrogram_max_db: number;
+  spectrogram_cmap: string;
 };
 
 // REST response from GET/POST /api/config.
@@ -132,7 +135,10 @@ export type ApiConfigResponse = {
 };
 
 // Payload for POST /api/config (partial updates).
-export type ApiConfigRequest = Partial<SpectrumConfig> & Partial<StreamMetadata>;
+export type ApiConfigRequest = Partial<SpectrumConfig> &
+  Partial<StreamMetadata> & {
+    span_hz?: number;
+  };
 
 // Payload for POST /api/config (partial updates).
 export type ConfigUpdatePayload = ApiConfigRequest;

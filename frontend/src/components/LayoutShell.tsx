@@ -3,7 +3,14 @@ import { useDisclosure } from "@mantine/hooks";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { ApiClient } from "../api/client";
-import type { EngineStatus } from "../api/types";
+import type {
+  ApiConfigResponse,
+  ApplyPresetRequest,
+  ConfigUpdatePayload,
+  EngineStatus,
+  SpectrumConfig,
+  StreamMetadata,
+} from "../api/types";
 import { useWebSocket } from "../hooks/useWebSocket";
 import LeftSidebar from "./LeftSidebar";
 import SpectrumPanel from "./SpectrumPanel";
@@ -21,6 +28,11 @@ function LayoutShell() {
   const [isChecking, setIsChecking] = useState(true);
   // Track if a connect/disconnect action is in progress.
   const [isConnecting, setIsConnecting] = useState(false);
+  // Track the latest configuration + stream metadata for settings controls.
+  const [config, setConfig] = useState<SpectrumConfig | null>(null);
+  const [stream, setStream] = useState<StreamMetadata | null>(null);
+  const [isConfigLoading, setIsConfigLoading] = useState(true);
+  const [isConfigUpdating, setIsConfigUpdating] = useState(false);
 
   const { statusFrame, latestSpectrumFrameRef, latestSpectrogramFrameRef } =
     useWebSocket();
@@ -37,6 +49,45 @@ function LayoutShell() {
     }
     setIsChecking(false);
   }, [apiClient]);
+
+  const fetchConfig = useCallback(async () => {
+    setIsConfigLoading(true);
+    const response = await apiClient.getConfig();
+    if (response) {
+      setConfig(response.config);
+      setStream(response.stream);
+    }
+    setIsConfigLoading(false);
+  }, [apiClient]);
+
+  const handleConfigUpdate = useCallback(
+    async (payload: ConfigUpdatePayload): Promise<ApiConfigResponse | null> => {
+      if (isConfigUpdating) {
+        return null;
+      }
+      setIsConfigUpdating(true);
+      const response = await apiClient.updateConfig(payload);
+      if (response) {
+        setConfig(response.config);
+        setStream(response.stream);
+      }
+      setIsConfigUpdating(false);
+      return response;
+    },
+    [apiClient, isConfigUpdating],
+  );
+
+  const handleApplyPreset = useCallback(
+    async (payload: ApplyPresetRequest) => {
+      const response = await apiClient.applyPreset(payload);
+      if (response?.config) {
+        setConfig(response.config.config);
+        setStream(response.config.stream);
+      }
+      return response;
+    },
+    [apiClient],
+  );
 
   const handleConnectToggle = useCallback(async () => {
     if (isConnecting) {
@@ -57,7 +108,8 @@ function LayoutShell() {
   // Load the initial status snapshot when the layout mounts.
   useEffect(() => {
     void fetchStatus();
-  }, [fetchStatus]);
+    void fetchConfig();
+  }, [fetchStatus, fetchConfig]);
 
   useEffect(() => {
     if (!statusFrame) {
@@ -111,7 +163,14 @@ function LayoutShell() {
         />
       </AppShell.Header>
       <AppShell.Navbar p="md">
-        <LeftSidebar connectionState={connectionState} />
+        <LeftSidebar
+          connectionState={connectionState}
+          config={config}
+          stream={stream}
+          isConfigLoading={isConfigLoading || isConfigUpdating}
+          onUpdateConfig={handleConfigUpdate}
+          onApplyPreset={handleApplyPreset}
+        />
       </AppShell.Navbar>
       <AppShell.Main>
         <Box className="main-panel">
