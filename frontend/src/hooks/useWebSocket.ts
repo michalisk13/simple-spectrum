@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { WebSocketClient, type WebSocketConnectionState } from "../ws/client";
-import type { SpectrogramFrame, SpectrumFrame, StatusFrame } from "../ws/types";
+import type {
+  ConfigAckFrame,
+  ErrorFrame,
+  MarkersFrame,
+  SpectrogramFrame,
+  SpectrumFrame,
+  StatusFrame,
+} from "../ws/types";
 
 // Default WebSocket base URL for local development.
 const DEFAULT_WS_BASE_URL = "ws://localhost:8000";
@@ -23,6 +30,12 @@ export type UseWebSocketResult = {
   connectionState: WebSocketConnectionState;
   // Most recent status frame, if any.
   statusFrame: StatusFrame | null;
+  // Most recent markers frame, if any.
+  markersFrame: MarkersFrame | null;
+  // Most recent config acknowledgement frame, if any.
+  configAckFrame: ConfigAckFrame | null;
+  // Most recent error frame, if any.
+  errorFrame: ErrorFrame | null;
   // Latest spectrum payload metadata + data (mutable ref for high-rate reads).
   latestSpectrumFrameRef: MutableRefObject<SpectrumFrame | null>;
   // Latest spectrogram payload metadata + data (mutable ref for high-rate reads).
@@ -32,13 +45,19 @@ export type UseWebSocketResult = {
 export type UseWebSocketOptions = {
   // Optional callback invoked for every status frame.
   onStatusFrame?: (frame: StatusFrame) => void;
+  // Optional callback invoked for markers frames.
+  onMarkersFrame?: (frame: MarkersFrame) => void;
+  // Optional callback invoked for config acknowledgement frames.
+  onConfigAckFrame?: (frame: ConfigAckFrame) => void;
+  // Optional callback invoked for error frames.
+  onErrorFrame?: (frame: ErrorFrame) => void;
   // Optional callback invoked for every spectrum payload.
   onSpectrumFrame?: (frame: SpectrumFrame) => void;
   // Optional callback invoked for every spectrogram payload.
   onSpectrogramFrame?: (frame: SpectrogramFrame) => void;
 };
 
-// Connects to the backend stream and logs status frames for validation.
+// Connects to the backend stream and exposes frames to the UI.
 export const useWebSocket = (
   options: UseWebSocketOptions = {},
 ): UseWebSocketResult => {
@@ -46,6 +65,10 @@ export const useWebSocket = (
   const [connectionState, setConnectionState] =
     useState<WebSocketConnectionState>("disconnected");
   const [statusFrame, setStatusFrame] = useState<StatusFrame | null>(null);
+  const [markersFrame, setMarkersFrame] = useState<MarkersFrame | null>(null);
+  const [configAckFrame, setConfigAckFrame] =
+    useState<ConfigAckFrame | null>(null);
+  const [errorFrame, setErrorFrame] = useState<ErrorFrame | null>(null);
   // Persist the client instance for the lifetime of the hook.
   const clientRef = useRef<WebSocketClient | null>(null);
   const latestSpectrumFrameRef = useRef<SpectrumFrame | null>(null);
@@ -71,12 +94,27 @@ export const useWebSocket = (
             latestSpectrumFrameRef.current = null;
             latestSpectrogramFrameRef.current = null;
             setStatusFrame(null);
+            setMarkersFrame(null);
+            setConfigAckFrame(null);
+            setErrorFrame(null);
           }
         },
         // Track status frames for UI synchronization.
         onStatusFrame: (frame: StatusFrame) => {
           setStatusFrame(frame);
           optionsRef.current.onStatusFrame?.(frame);
+        },
+        onMarkersFrame: (frame: MarkersFrame) => {
+          setMarkersFrame(frame);
+          optionsRef.current.onMarkersFrame?.(frame);
+        },
+        onConfigAckFrame: (frame: ConfigAckFrame) => {
+          setConfigAckFrame(frame);
+          optionsRef.current.onConfigAckFrame?.(frame);
+        },
+        onErrorFrame: (frame: ErrorFrame) => {
+          setErrorFrame(frame);
+          optionsRef.current.onErrorFrame?.(frame);
         },
         onSpectrumFrame: (frame: SpectrumFrame) => {
           latestSpectrumFrameRef.current = frame;
@@ -111,6 +149,9 @@ export const useWebSocket = (
   return {
     connectionState,
     statusFrame,
+    markersFrame,
+    configAckFrame,
+    errorFrame,
     latestSpectrumFrameRef,
     latestSpectrogramFrameRef,
   };

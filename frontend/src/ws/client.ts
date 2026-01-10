@@ -1,6 +1,9 @@
 // WebSocket client wrapper for the backend streaming endpoint.
 
 import type {
+  ConfigAckFrame,
+  ErrorFrame,
+  MarkersFrame,
   SpectrogramFrame,
   SpectrogramMetaFrame,
   SpectrumFrame,
@@ -28,6 +31,12 @@ type WebSocketCallbacks = {
   onConnectionStateChange?: (state: WebSocketConnectionState) => void;
   // Invoked for each status frame received from the server.
   onStatusFrame?: (frame: StatusFrame) => void;
+  // Invoked for each markers frame received from the server.
+  onMarkersFrame?: (frame: MarkersFrame) => void;
+  // Invoked for config acknowledgement frames from the server.
+  onConfigAckFrame?: (frame: ConfigAckFrame) => void;
+  // Invoked for error frames received from the server.
+  onErrorFrame?: (frame: ErrorFrame) => void;
   // Invoked for each spectrum payload paired with metadata.
   onSpectrumFrame?: (frame: SpectrumFrame) => void;
   // Invoked for each spectrogram payload paired with metadata.
@@ -164,6 +173,18 @@ export class WebSocketClient {
       // Route status frames to the appropriate callback.
       if (frame.type === "status") {
         this.callbacks.onStatusFrame?.(frame as StatusFrame);
+        return;
+      }
+      if (frame.type === "markers") {
+        this.callbacks.onMarkersFrame?.(frame as MarkersFrame);
+        return;
+      }
+      if (frame.type === "config_ack") {
+        this.callbacks.onConfigAckFrame?.(frame as ConfigAckFrame);
+        return;
+      }
+      if (frame.type === "error") {
+        this.callbacks.onErrorFrame?.(frame as ErrorFrame);
         return;
       }
       if (frame.type === "spectrum_meta") {
