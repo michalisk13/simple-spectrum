@@ -23,6 +23,35 @@ export type StatusFrame = WebSocketFrameBase &
     type: "status";
   };
 
+// Marker metadata reported by the backend.
+export type Marker = {
+  id: string;
+  freq_hz: number;
+  amp_dbfs: number;
+  label: string;
+};
+
+// Marker frame describing active markers on the spectrum.
+export type MarkersFrame = WebSocketFrameBase & {
+  type: "markers";
+  markers: Marker[];
+};
+
+// Config acknowledgement frame indicating applied settings.
+export type ConfigAckFrame = WebSocketFrameBase & {
+  type: "config_ack";
+  applied: Record<string, unknown>;
+};
+
+// Error frame emitted by the backend when streaming issues occur.
+export type ErrorFrame = WebSocketFrameBase & {
+  type: "error";
+  error_code: string;
+  message: string;
+  details?: Record<string, unknown> | null;
+  recoverable: boolean;
+};
+
 // Metadata sent ahead of spectrum payloads.
 export type SpectrumMetaFrame = WebSocketFrameBase & {
   type: "spectrum_meta";
@@ -71,4 +100,10 @@ export type SpectrogramFrame = {
 };
 
 // Union of known WebSocket frames for type-safe handling.
-export type WebSocketFrame = StatusFrame | SpectrumMetaFrame | SpectrogramMetaFrame;
+export type WebSocketFrame =
+  | StatusFrame
+  | SpectrumMetaFrame
+  | SpectrogramMetaFrame
+  | MarkersFrame
+  | ConfigAckFrame
+  | ErrorFrame;

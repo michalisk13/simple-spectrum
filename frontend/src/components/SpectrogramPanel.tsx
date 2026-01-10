@@ -1,8 +1,7 @@
 import { Badge, Group, Paper, Text } from "@mantine/core";
 import { IconChartHistogram } from "@tabler/icons-react";
-import { useCallback, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { EngineStatus } from "../api/types";
-import { useAnimationFrame } from "../hooks/useAnimationFrame";
 import type { SpectrogramFrame, SpectrogramMetaFrame } from "../ws/types";
 import SpectrogramCanvas from "./plots/SpectrogramCanvas";
 
@@ -15,19 +14,21 @@ const formatDb = (value: number) => {
 
 type SpectrogramPanelProps = {
   statusFrame: EngineStatus | null;
+  spectrogramFrame: SpectrogramFrame | null;
   spectrogramFrameRef: MutableRefObject<SpectrogramFrame | null>;
 };
 
 function SpectrogramPanel({
   statusFrame,
+  spectrogramFrame,
   spectrogramFrameRef,
 }: SpectrogramPanelProps) {
   const [row, setRow] = useState<Float32Array | Uint8Array | null>(null);
   const [meta, setMeta] = useState<SpectrogramMetaFrame | null>(null);
   const lastSeqRef = useRef<number | null>(null);
 
-  const updateRow = useCallback(() => {
-    const frame = spectrogramFrameRef.current;
+  useEffect(() => {
+    const frame = spectrogramFrame ?? spectrogramFrameRef.current;
     if (!frame) {
       if (lastSeqRef.current !== null) {
         lastSeqRef.current = null;
@@ -42,9 +43,7 @@ function SpectrogramPanel({
       setRow(frame.payload);
       setMeta(frame.meta);
     }
-  }, [spectrogramFrameRef]);
-
-  useAnimationFrame(updateRow, 20);
+  }, [spectrogramFrame, spectrogramFrameRef]);
 
   const spectrogramInfo = useMemo(() => {
     if (!meta) {

@@ -22,8 +22,13 @@ function LayoutShell() {
   // Track if a connect/disconnect action is in progress.
   const [isConnecting, setIsConnecting] = useState(false);
 
-  const { statusFrame, latestSpectrumFrameRef, latestSpectrogramFrameRef } =
-    useWebSocket();
+  const {
+    statusFrame,
+    spectrumFrame,
+    spectrogramFrame,
+    latestSpectrumFrameRef,
+    latestSpectrogramFrameRef,
+  } = useWebSocket();
 
   // Create a single API client instance for this layout.
   const apiClient = useMemo(() => new ApiClient(), []);
@@ -120,6 +125,7 @@ function LayoutShell() {
               <Box className="panel-fill">
                 <SpectrumPanel
                   statusFrame={statusFrame}
+                  spectrumFrame={spectrumFrame}
                   spectrumFrameRef={latestSpectrumFrameRef}
                 />
               </Box>
@@ -129,6 +135,7 @@ function LayoutShell() {
               <Box className="panel-fill">
                 <SpectrogramPanel
                   statusFrame={statusFrame}
+                  spectrogramFrame={spectrogramFrame}
                   spectrogramFrameRef={latestSpectrogramFrameRef}
                 />
               </Box>

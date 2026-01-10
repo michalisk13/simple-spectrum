@@ -1,8 +1,7 @@
 import { Badge, Group, Paper, Text } from "@mantine/core";
 import { IconWaveSine } from "@tabler/icons-react";
-import { useCallback, useMemo, useRef, useState, type MutableRefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import type { EngineStatus } from "../api/types";
-import { useAnimationFrame } from "../hooks/useAnimationFrame";
 import type { SpectrumFrame, SpectrumMetaFrame } from "../ws/types";
 import SpectrumCanvas from "./plots/SpectrumCanvas";
 
@@ -24,16 +23,21 @@ const formatHz = (value: number) => {
 
 type SpectrumPanelProps = {
   statusFrame: EngineStatus | null;
+  spectrumFrame: SpectrumFrame | null;
   spectrumFrameRef: MutableRefObject<SpectrumFrame | null>;
 };
 
-function SpectrumPanel({ statusFrame, spectrumFrameRef }: SpectrumPanelProps) {
+function SpectrumPanel({
+  statusFrame,
+  spectrumFrame,
+  spectrumFrameRef,
+}: SpectrumPanelProps) {
   const [trace, setTrace] = useState<Float32Array | null>(null);
   const [meta, setMeta] = useState<SpectrumMetaFrame | null>(null);
   const lastSeqRef = useRef<number | null>(null);
 
-  const updateTrace = useCallback(() => {
-    const frame = spectrumFrameRef.current;
+  useEffect(() => {
+    const frame = spectrumFrame ?? spectrumFrameRef.current;
     if (!frame) {
       if (lastSeqRef.current !== null) {
         lastSeqRef.current = null;
@@ -48,9 +52,7 @@ function SpectrumPanel({ statusFrame, spectrumFrameRef }: SpectrumPanelProps) {
       setTrace(frame.payload);
       setMeta(frame.meta);
     }
-  }, [spectrumFrameRef]);
-
-  useAnimationFrame(updateTrace, 20);
+  }, [spectrumFrame, spectrumFrameRef]);
 
   const spectrumInfo = useMemo(() => {
     if (!meta) {
