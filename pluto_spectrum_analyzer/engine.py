@@ -7,6 +7,7 @@ import time
 from typing import Callable, Dict, Optional
 
 from pluto_spectrum_analyzer.config import SpectrumConfig
+from pluto_spectrum_analyzer.display import DisplayConfig
 from pluto_spectrum_analyzer.dsp.processor import SpectrumProcessor
 from pluto_spectrum_analyzer.protocol import (
     EngineErrorFrame,
@@ -82,6 +83,13 @@ class Engine:
     def stream_metadata(self) -> Dict[str, object]:
         return dict(self._stream_meta)
 
+    def display_config(self) -> DisplayConfig:
+        return DisplayConfig(
+            max_spectrum_bins=int(self.cfg.max_spectrum_bins),
+            max_spectrogram_cols=int(self.cfg.max_spectrogram_cols),
+            spectrogram_quantize=bool(self.cfg.spectrogram_quantize),
+        )
+
     def connect(self, uri: Optional[str] = None) -> bool:
         if self._sdr is not None:
             return True
@@ -118,7 +126,8 @@ class Engine:
     def disconnect(self) -> None:
         if self._worker is not None:
             self._worker.stop()
-            self._worker.join(timeout=1.0)
+            if threading.current_thread() is not self._worker:
+                self._worker.join(timeout=1.0)
             self._worker = None
         if self._sdr is not None:
             try:
