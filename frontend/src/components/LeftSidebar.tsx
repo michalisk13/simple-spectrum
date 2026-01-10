@@ -23,6 +23,13 @@ import {
   IconTarget,
   IconWaveSine,
 } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { ApiClient } from "../api/client";
+import type { ApplyPresetRequest } from "../api/types";
+
+type LeftSidebarProps = {
+  connectionState: "connected" | "disconnected" | "checking";
+};
 
 const sectionHeaderProps = {
   size: "xs",
@@ -32,7 +39,56 @@ const sectionHeaderProps = {
   className: "sidebar-section-title",
 } as const;
 
-function LeftSidebar() {
+const fallbackPresets = ["Fast View", "Wide Scan", "Measure"];
+
+function LeftSidebar({ connectionState }: LeftSidebarProps) {
+  const apiClient = useMemo(() => new ApiClient(), []);
+  const [presets, setPresets] = useState<string[]>(fallbackPresets);
+  const [isLoadingPresets, setIsLoadingPresets] = useState(false);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [measureDetector, setMeasureDetector] = useState("Peak");
+
+  useEffect(() => {
+    const loadPresets = async () => {
+      setIsLoadingPresets(true);
+      const response = await apiClient.listPresets();
+      if (response?.presets?.length) {
+        setPresets(response.presets);
+      }
+      setIsLoadingPresets(false);
+    };
+
+    void loadPresets();
+  }, [apiClient]);
+
+  const applyPreset = async (payload: ApplyPresetRequest) => {
+    if (activePreset) {
+      return;
+    }
+    setActivePreset(payload.name);
+    await apiClient.applyPreset(payload);
+    setActivePreset(null);
+  };
+
+  const renderPresetButton = (presetName: string, variant: "light" | "outline") => (
+    <Button
+      key={presetName}
+      size="xs"
+      variant={variant}
+      fullWidth
+      loading={activePreset === presetName}
+      disabled={isLoadingPresets || Boolean(activePreset)}
+      onClick={() =>
+        applyPreset({
+          name: presetName,
+          measure_detector: presetName === "Measure" ? measureDetector : undefined,
+        })
+      }
+    >
+      {presetName}
+    </Button>
+  );
+
   return (
     <Stack gap="lg" className="sidebar">
       <Group justify="space-between" align="center">
@@ -42,8 +98,21 @@ function LeftSidebar() {
             Controls
           </Text>
         </Group>
-        <Badge variant="light" color="red">
-          Offline
+        <Badge
+          variant="light"
+          color={
+            connectionState === "connected"
+              ? "green"
+              : connectionState === "checking"
+                ? "yellow"
+                : "red"
+          }
+        >
+          {connectionState === "connected"
+            ? "Online"
+            : connectionState === "checking"
+              ? "Checking"
+              : "Offline"}
         </Badge>
       </Group>
 
@@ -124,15 +193,17 @@ function LeftSidebar() {
         <Paper withBorder className="sidebar-section">
           <Stack gap="sm">
             <Group gap="xs">
-              <Button size="xs" variant="light" fullWidth>
-                Fast View
-              </Button>
-              <Button size="xs" variant="outline" fullWidth>
-                Wide Scan
-              </Button>
-              <Button size="xs" variant="outline" fullWidth>
-                Measure
-              </Button>
+              {presets.length >= 3 ? (
+                presets.slice(0, 3).map((preset, index) =>
+                  renderPresetButton(preset, index === 0 ? "light" : "outline"),
+                )
+              ) : (
+                <>
+                  {renderPresetButton("Fast View", "light")}
+                  {renderPresetButton("Wide Scan", "outline")}
+                  {renderPresetButton("Measure", "outline")}
+                </>
+              )}
             </Group>
             <Group className="sidebar-row" align="center">
               <Text size="xs" c="dimmed">
@@ -140,9 +211,15 @@ function LeftSidebar() {
               </Text>
               <Select
                 data={["Peak", "RMS"]}
-                defaultValue="Peak"
+                value={measureDetector}
+                onChange={(value) => {
+                  if (value) {
+                    setMeasureDetector(value);
+                  }
+                }}
                 size="xs"
                 variant="filled"
+                disabled={isLoadingPresets || Boolean(activePreset)}
               />
             </Group>
           </Stack>

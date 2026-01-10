@@ -19,6 +19,8 @@ function LayoutShell() {
   const [status, setStatus] = useState<EngineStatus | null>(null);
   // Track whether we're currently polling the API status endpoint.
   const [isChecking, setIsChecking] = useState(true);
+  // Track if a connect/disconnect action is in progress.
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Connect to the WebSocket stream and log StatusFrame payloads.
   useWebSocket();
@@ -35,6 +37,20 @@ function LayoutShell() {
     }
     setIsChecking(false);
   }, [apiClient]);
+
+  const handleConnectToggle = useCallback(async () => {
+    if (isConnecting) {
+      return;
+    }
+    setIsConnecting(true);
+    const response = status?.connected
+      ? await apiClient.disconnectSdr()
+      : await apiClient.connectSdr();
+    if (response?.status) {
+      setStatus(response.status);
+    }
+    setIsConnecting(false);
+  }, [apiClient, isConnecting, status]);
 
   // Load the initial status snapshot when the layout mounts.
   useEffect(() => {
@@ -79,10 +95,13 @@ function LayoutShell() {
           onToggleSidebar={toggleNavbar}
           connectionState={connectionState}
           onRefresh={fetchStatus}
+          onToggleConnection={handleConnectToggle}
+          isRefreshing={isChecking}
+          isConnecting={isConnecting}
         />
       </AppShell.Header>
       <AppShell.Navbar p="md">
-        <LeftSidebar />
+        <LeftSidebar connectionState={connectionState} />
       </AppShell.Navbar>
       <AppShell.Main>
         <Box className="main-panel">

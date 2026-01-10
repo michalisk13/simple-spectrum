@@ -15,6 +15,9 @@ type StatusBarProps = {
   onToggleSidebar: () => void;
   connectionState: ConnectionState;
   onRefresh: () => void;
+  onToggleConnection: () => void;
+  isRefreshing: boolean;
+  isConnecting: boolean;
 };
 
 // Mantine badge colors mapped to connection status.
@@ -29,6 +32,9 @@ function StatusBar({
   onToggleSidebar,
   connectionState,
   onRefresh,
+  onToggleConnection,
+  isRefreshing,
+  isConnecting,
 }: StatusBarProps) {
   const SidebarIcon = sidebarOpened
     ? IconLayoutSidebarLeftCollapse
@@ -82,6 +88,8 @@ function StatusBar({
             variant="light"
             leftSection={<IconRefresh size={16} />}
             onClick={onRefresh}
+            loading={isRefreshing}
+            disabled={isConnecting}
           >
             Refresh
           </Button>
@@ -95,6 +103,9 @@ function StatusBar({
                 <IconPlugConnected size={16} />
               )
             }
+            onClick={onToggleConnection}
+            loading={isConnecting}
+            disabled={isRefreshing}
           >
             {connectionState === "connected" ? "Disconnect" : "Connect"}
           </Button>

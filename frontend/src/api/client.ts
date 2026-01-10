@@ -1,6 +1,16 @@
 // API client wrapper for the REST endpoints used by the frontend.
 
-import type { ApiError, ApiStatusResponse } from "./types";
+import type {
+  ApiCommandResponse,
+  ApiConfigResponse,
+  ApiError,
+  ApiPresetsResponse,
+  ApiStatusResponse,
+  ApplyPresetRequest,
+  ApplyPresetResponse,
+  ConfigUpdatePayload,
+  EngineError,
+} from "./types";
 import { notifyApiError } from "../components/notifications/notify";
 
 // Configuration for the API client instance.
@@ -44,6 +54,32 @@ export class ApiClient {
     this.onError = options.onError ?? notifyApiError;
   }
 
+  // Load the current configuration from the backend.
+  async getConfig(): Promise<ApiConfigResponse | null> {
+    try {
+      return await this.request<ApiConfigResponse>("/config");
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
+  // Apply partial configuration updates.
+  async updateConfig(payload: ConfigUpdatePayload): Promise<ApiConfigResponse | null> {
+    try {
+      return await this.request<ApiConfigResponse>("/config", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
   // Load the current connection status from the backend.
   async getStatus(): Promise<ApiStatusResponse | null> {
     try {
@@ -57,6 +93,100 @@ export class ApiClient {
         });
       }
 
+      return response;
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
+  // Connect to the SDR with an optional URI override.
+  async connectSdr(uri?: string): Promise<ApiCommandResponse | null> {
+    try {
+      const response = await this.request<ApiCommandResponse>("/sdr/connect", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: uri ? JSON.stringify({ uri }) : undefined,
+      });
+      this.handleCommandResponse(response);
+      return response;
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
+  // Disconnect from the SDR.
+  async disconnectSdr(): Promise<ApiCommandResponse | null> {
+    try {
+      const response = await this.request<ApiCommandResponse>("/sdr/disconnect", {
+        method: "POST",
+      });
+      this.handleCommandResponse(response);
+      return response;
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
+  // Disconnect and reconnect the SDR.
+  async reconnectSdr(): Promise<ApiCommandResponse | null> {
+    try {
+      const response = await this.request<ApiCommandResponse>("/sdr/reconnect", {
+        method: "POST",
+      });
+      this.handleCommandResponse(response);
+      return response;
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
+  // Test connectivity to the SDR without maintaining a connection.
+  async testSdr(uri?: string): Promise<ApiCommandResponse | null> {
+    try {
+      const response = await this.request<ApiCommandResponse>("/sdr/test", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: uri ? JSON.stringify({ uri }) : undefined,
+      });
+      this.handleCommandResponse(response);
+      return response;
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
+  // List available presets.
+  async listPresets(): Promise<ApiPresetsResponse | null> {
+    try {
+      return await this.request<ApiPresetsResponse>("/presets");
+    } catch (error) {
+      this.onError(toApiError(error));
+      return null;
+    }
+  }
+
+  // Apply a named preset.
+  async applyPreset(payload: ApplyPresetRequest): Promise<ApplyPresetResponse | null> {
+    try {
+      const response = await this.request<ApplyPresetResponse>("/presets/apply", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        this.onError({ message: "Preset could not be applied." });
+      }
       return response;
     } catch (error) {
       this.onError(toApiError(error));
@@ -84,5 +214,29 @@ export class ApiClient {
     }
 
     return (await response.json()) as T;
+  }
+
+  private handleCommandResponse(response: ApiCommandResponse): void {
+    if (response.error) {
+      this.notifyEngineError(response.error);
+      return;
+    }
+    if (!response.ok) {
+      this.onError({ message: "Command failed to execute." });
+    }
+  }
+
+  private notifyEngineError(error: EngineError | null | undefined): void {
+    if (!error) {
+      return;
+    }
+    const detailParts = [
+      error.error_code,
+      error.details ? JSON.stringify(error.details) : undefined,
+    ].filter(Boolean);
+    this.onError({
+      message: error.message,
+      details: detailParts.length ? detailParts.join(" • ") : undefined,
+    });
   }
 }
