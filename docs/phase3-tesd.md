@@ -21,6 +21,20 @@ Minimal smoke checks for the Phase 3 WebSocket stream.
 
 Save as `phase3-test.py`, then run `python3 phase3-test.py`.
 
+### Connect the SDR before testing (optional)
+
+The WebSocket stream reports whatever the engine status is at connection time.
+If you have an SDR attached, you still need to explicitly tell the backend to
+connect before running the script. Otherwise the first status frame will show
+`connected=false`.
+
+```bash
+curl -s -X POST http://localhost:8000/api/sdr/connect | jq
+```
+
+If you use a different server address, replace the URL or set `BASE_URL` in the
+script below.
+
 ```python
 import asyncio
 import json
