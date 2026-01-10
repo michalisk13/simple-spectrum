@@ -7,21 +7,29 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 
+// UI-friendly connection state values used by the status badge.
 type ConnectionState = "connected" | "disconnected" | "checking";
 
 type StatusBarProps = {
   sidebarOpened: boolean;
   onToggleSidebar: () => void;
   connectionState: ConnectionState;
+  onRefresh: () => void;
 };
 
+// Mantine badge colors mapped to connection status.
 const statusColorMap: Record<ConnectionState, string> = {
   connected: "green",
   disconnected: "red",
   checking: "yellow",
 };
 
-function StatusBar({ sidebarOpened, onToggleSidebar, connectionState }: StatusBarProps) {
+function StatusBar({
+  sidebarOpened,
+  onToggleSidebar,
+  connectionState,
+  onRefresh,
+}: StatusBarProps) {
   const SidebarIcon = sidebarOpened
     ? IconLayoutSidebarLeftCollapse
     : IconLayoutSidebarRightCollapse;
@@ -38,6 +46,7 @@ function StatusBar({ sidebarOpened, onToggleSidebar, connectionState }: StatusBa
           <SidebarIcon size={20} />
         </ActionIcon>
         <Text fw={600}>Pluto Spectrum Analyzer</Text>
+        {/* Connection badge derived from the latest API status. */}
         <Badge variant="light" color={statusColorMap[connectionState]}>
           {connectionState}
         </Badge>
@@ -51,6 +60,7 @@ function StatusBar({ sidebarOpened, onToggleSidebar, connectionState }: StatusBa
           size="xs"
           variant="light"
           leftSection={<IconRefresh size={16} />}
+          onClick={onRefresh}
         >
           Refresh
         </Button>

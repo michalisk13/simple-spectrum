@@ -1,13 +1,48 @@
 import { AppShell, Box } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { ApiClient } from "../api/client";
+import type { EngineStatus } from "../api/types";
 import LeftSidebar from "./LeftSidebar";
 import SpectrumPanel from "./SpectrumPanel";
 import SpectrogramPanel from "./SpectrogramPanel";
 import StatusBar from "./StatusBar";
 
+// Local connection state used for the status badge.
+type ConnectionState = "connected" | "disconnected" | "checking";
+
 function LayoutShell() {
   const [navbarOpened, { toggle: toggleNavbar }] = useDisclosure(true);
+  // Track the latest API status payload for the UI.
+  const [status, setStatus] = useState<EngineStatus | null>(null);
+  // Track whether we're currently polling the API status endpoint.
+  const [isChecking, setIsChecking] = useState(true);
+
+  // Create a single API client instance for this layout.
+  const apiClient = useMemo(() => new ApiClient(), []);
+
+  // Fetch the latest status from the backend.
+  const fetchStatus = useCallback(async () => {
+    setIsChecking(true);
+    const response = await apiClient.getStatus();
+    if (response) {
+      setStatus(response.status);
+    }
+    setIsChecking(false);
+  }, [apiClient]);
+
+  // Load the initial status snapshot when the layout mounts.
+  useEffect(() => {
+    void fetchStatus();
+  }, [fetchStatus]);
+
+  // Map status + loading to a friendly UI badge state.
+  const connectionState: ConnectionState = isChecking
+    ? "checking"
+    : status?.connected
+      ? "connected"
+      : "disconnected";
 
   return (
     <AppShell
@@ -38,7 +73,8 @@ function LayoutShell() {
         <StatusBar
           sidebarOpened={navbarOpened}
           onToggleSidebar={toggleNavbar}
-          connectionState="disconnected"
+          connectionState={connectionState}
+          onRefresh={fetchStatus}
         />
       </AppShell.Header>
       <AppShell.Navbar p="md">

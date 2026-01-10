@@ -4,6 +4,10 @@
 The frontend lives in `frontend/` and is built with Vite + React + TypeScript. During development it proxies API
 requests to the FastAPI backend.
 
+For REST calls, the UI uses a typed wrapper at `frontend/src/api/client.ts` and
+shows failures with Mantine notifications via
+`frontend/src/components/notifications/notify.tsx`.
+
 ## Run the backend
 ```bash
 python -m uvicorn pluto_spectrum_analyzer.server.app:app --reload --host 0.0.0.0 --port 8000
