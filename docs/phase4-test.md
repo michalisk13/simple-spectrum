@@ -37,6 +37,7 @@ MAX_SPECTRUM_BINS = 1024
 MAX_SPECTROGRAM_COLS = 512
 EXPECT_QUANTIZED = True
 MAX_FRAMES = 8
+META_TIMEOUT_S = 3
 
 
 def _parse_spay(payload: bytes) -> dict:
@@ -51,12 +52,16 @@ async def main() -> None:
     async with websockets.connect(BASE_URL, max_size=None) as ws:
         status = json.loads(await ws.recv())
         assert status["type"] == "status", "first frame must be status"
+        print("status:", status["connected"], status.get("message"))
 
         seen_spectrum = False
         seen_spectrogram = False
 
         for _ in range(MAX_FRAMES):
-            raw = await ws.recv()
+            try:
+                raw = await asyncio.wait_for(ws.recv(), timeout=META_TIMEOUT_S)
+            except asyncio.TimeoutError:
+                break
             if isinstance(raw, (bytes, bytearray)):
                 raise AssertionError("unexpected binary frame without metadata")
             meta = json.loads(raw)
@@ -84,8 +89,12 @@ async def main() -> None:
                 expected_len = 32 + meta["n_bins"] * 4 if meta["type"] == "spectrum_meta" else 32 + meta["n_cols"] * 4
             assert len(payload) == expected_len, "payload size mismatch"
 
-        assert seen_spectrum, "expected at least one spectrum_meta frame"
-        assert seen_spectrogram, "expected at least one spectrogram_meta frame"
+        if status["connected"]:
+            assert seen_spectrum, "expected at least one spectrum_meta frame"
+            assert seen_spectrogram, "expected at least one spectrogram_meta frame"
+        else:
+            assert not seen_spectrum, "unexpected spectrum_meta while disconnected"
+            assert not seen_spectrogram, "unexpected spectrogram_meta while disconnected"
 
 
 asyncio.run(main())
@@ -93,5 +102,6 @@ asyncio.run(main())
 
 ## Notes
 
-- If the SDR is **disconnected**, the script will block after the initial status frame.
+- If the SDR is **disconnected**, the only message sent is the initial `status` frame and no spectrum/spectrogram metadata or payloads are emitted. The script will exit after the timeout and print the status line (this is expected behavior).
+- If the SDR is **connected**, you should see `spectrum_meta` and `spectrogram_meta` frames before the timeout and the assertions will confirm the capped sizes and quantization flags.
 - Set different caps by changing `MAX_SPECTRUM_BINS`/`MAX_SPECTROGRAM_COLS` (and matching the `/api/config` call).

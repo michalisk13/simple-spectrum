@@ -126,7 +126,8 @@ class Engine:
     def disconnect(self) -> None:
         if self._worker is not None:
             self._worker.stop()
-            self._worker.join(timeout=1.0)
+            if threading.current_thread() is not self._worker:
+                self._worker.join(timeout=1.0)
             self._worker = None
         if self._sdr is not None:
             try:
