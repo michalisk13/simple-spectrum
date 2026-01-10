@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from pluto_spectrum_analyzer.config import SpectrumConfig
 from pluto_spectrum_analyzer.engine import Engine
@@ -13,6 +14,13 @@ from pluto_spectrum_analyzer.server.ws import router as ws_router
 def create_app(engine: Engine | None = None) -> FastAPI:
     cfg = SpectrumConfig()
     app = FastAPI(title="Pluto Spectrum Analyzer")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.engine = engine or Engine(cfg)
     app.include_router(router)
     app.include_router(ws_router)
