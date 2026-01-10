@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { ApiClient } from "../api/client";
 import type { EngineStatus } from "../api/types";
+import { useWebSocket } from "../hooks/useWebSocket";
 import LeftSidebar from "./LeftSidebar";
 import SpectrumPanel from "./SpectrumPanel";
 import SpectrogramPanel from "./SpectrogramPanel";
@@ -18,6 +19,9 @@ function LayoutShell() {
   const [status, setStatus] = useState<EngineStatus | null>(null);
   // Track whether we're currently polling the API status endpoint.
   const [isChecking, setIsChecking] = useState(true);
+
+  // Connect to the WebSocket stream and log StatusFrame payloads.
+  useWebSocket();
 
   // Create a single API client instance for this layout.
   const apiClient = useMemo(() => new ApiClient(), []);

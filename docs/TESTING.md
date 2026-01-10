@@ -61,6 +61,8 @@ These require a connected SDR and are not suitable for CI:
 #### Phase 5: Web UI scaffold
 * `npm run dev` starts the app and loads layout with placeholders.
 * Status bar reflects `/api/status` changes.
+* WebSocket discovery hook logs StatusFrame payloads.
+* Quick script available in `docs/phase5-test.md`.
 
 #### Phase 6: Web UI streaming
 * Spectrum trace updates continuously without stutter.
