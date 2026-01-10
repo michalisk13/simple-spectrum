@@ -7,8 +7,10 @@ from dataclasses import dataclass
 import uuid
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+import numpy as np
 
 from pluto_spectrum_analyzer.engine import Engine
+from pluto_spectrum_analyzer.display import apply_spectrogram_display, apply_spectrum_display
 from pluto_spectrum_analyzer.protocol import (
     BINARY_KIND_SPECTROGRAM,
     BINARY_KIND_SPECTRUM,
@@ -87,50 +89,55 @@ async def _send_status(session: _ClientSession, engine: Engine) -> None:
     await session.websocket.send_json(payload)
 
 
-async def _send_spectrum(session: _ClientSession, frame: EngineSpectrumFrame) -> None:
+async def _send_spectrum(session: _ClientSession, frame: EngineSpectrumFrame, engine: Engine) -> None:
+    display_frame = apply_spectrum_display(frame, engine.display_config())
     payload_id = uuid.uuid4()
     meta = engine_spectrum_meta_to_wire(
-        frame,
+        display_frame,
         seq=session.next_seq(),
         session_id=session.session_id,
         payload_id=payload_id,
     )
     await session.websocket.send_json(meta)
 
-    payload = frame.y.astype("<f4", copy=False).tobytes()
-    header = make_payload_header(BINARY_KIND_SPECTRUM, payload_id, frame.y.size)
+    payload = display_frame.y.astype("<f4", copy=False).tobytes()
+    header = make_payload_header(BINARY_KIND_SPECTRUM, payload_id, display_frame.y.size)
     await session.websocket.send_bytes(header + payload)
 
 
-async def _send_spectrogram(session: _ClientSession, frame: EngineSpectrogramFrame) -> None:
+async def _send_spectrogram(session: _ClientSession, frame: EngineSpectrogramFrame, engine: Engine) -> None:
+    display_frame, quantized, dtype = apply_spectrogram_display(frame, engine.display_config())
     payload_id = uuid.uuid4()
     meta = engine_spectrogram_meta_to_wire(
-        frame,
+        display_frame,
         seq=session.next_seq(),
         session_id=session.session_id,
         payload_id=payload_id,
-        quantized=False,
-        dtype="f32",
+        quantized=quantized,
+        dtype=dtype,
     )
     await session.websocket.send_json(meta)
 
-    payload = frame.row_db.astype("<f4", copy=False).tobytes()
-    header = make_payload_header(BINARY_KIND_SPECTROGRAM, payload_id, frame.row_db.size)
+    if quantized:
+        payload = display_frame.row_db.astype(np.uint8, copy=False).tobytes()
+    else:
+        payload = display_frame.row_db.astype("<f4", copy=False).tobytes()
+    header = make_payload_header(BINARY_KIND_SPECTROGRAM, payload_id, display_frame.row_db.size)
     await session.websocket.send_bytes(header + payload)
 
 
-async def _send_frame(session: _ClientSession, frame: EngineFrame) -> None:
+async def _send_frame(session: _ClientSession, frame: EngineFrame, engine: Engine) -> None:
     if isinstance(frame, EngineStatusFrame):
         payload = engine_status_to_wire(frame, seq=session.next_seq(), session_id=session.session_id)
         await session.websocket.send_json(payload)
         return
 
     if isinstance(frame, EngineSpectrumFrame):
-        await _send_spectrum(session, frame)
+        await _send_spectrum(session, frame, engine)
         return
 
     if isinstance(frame, EngineSpectrogramFrame):
-        await _send_spectrogram(session, frame)
+        await _send_spectrogram(session, frame, engine)
         return
 
     if isinstance(frame, EngineMarkerFrame):
@@ -161,7 +168,7 @@ async def stream(websocket: WebSocket) -> None:
     try:
         while True:
             frame = await session.queue.get()
-            await _send_frame(session, frame)
+            await _send_frame(session, frame, engine)
     except WebSocketDisconnect:
         # Client disconnected; cleanup happens in finally.
         pass

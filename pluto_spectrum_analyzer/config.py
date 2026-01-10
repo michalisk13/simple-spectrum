@@ -63,6 +63,11 @@ class SpectrumConfig:
     # Spectrogram defaults.
     spectrogram_mode: str = "PSD (Welch)"
 
+    # Display decimation/quantization.
+    max_spectrum_bins: int = 2048
+    max_spectrogram_cols: int = 1024
+    spectrogram_quantize: bool = False
+
     # Measurement helpers.
     measurement_mode: bool = False
     dc_remove: bool = True

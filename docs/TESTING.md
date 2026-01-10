@@ -49,6 +49,7 @@ These require a connected SDR and are not suitable for CI:
 * Spectrum output capped to max bins while preserving endpoints.
 * Spectrogram columns capped, optional quantization to u8.
 * UI remains responsive at large FFT sizes.
+* Quick script available in `docs/phase4-test.md`.
 
 #### Phase 5: Web UI scaffold
 * `npm run dev` starts the app and loads layout with placeholders.
