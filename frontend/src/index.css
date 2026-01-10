@@ -50,6 +50,11 @@ body {
   height: calc(100vh - 64px - 32px);
 }
 
+.panel-fill {
+  height: 100%;
+  display: flex;
+}
+
 .panel-surface {
   height: 100%;
   border: 1px solid var(--panel-border);

@@ -88,11 +88,15 @@ function LayoutShell() {
         <Box className="main-panel">
           <PanelGroup direction="vertical">
             <Panel defaultSize={60} minSize={40}>
-              <SpectrumPanel />
+              <Box className="panel-fill">
+                <SpectrumPanel />
+              </Box>
             </Panel>
             <PanelResizeHandle className="resize-handle" />
             <Panel defaultSize={40} minSize={30}>
-              <SpectrogramPanel />
+              <Box className="panel-fill">
+                <SpectrogramPanel />
+              </Box>
             </Panel>
           </PanelGroup>
         </Box>
