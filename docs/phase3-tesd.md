@@ -6,16 +6,20 @@ Minimal smoke checks for the Phase 3 WebSocket stream.
 
 1. Start the FastAPI server (example):
    ```bash
-   python -m uvicorn pluto_spectrum_analyzer.server.app:create_app --factory --host 0.0.0.0 --port 8000
+   python3 -m uvicorn pluto_spectrum_analyzer.server.app:create_app --factory --host 0.0.0.0 --port 8000
+   ```
+   If you see a 404 when connecting to `/ws/stream`, verify you started the server with the factory command above or use:
+   ```bash
+   python3 -m uvicorn pluto_spectrum_analyzer.server.app:app --host 0.0.0.0 --port 8000
    ```
 2. Install the Python WebSocket client if you do not have it:
    ```bash
-   python -m pip install websockets
+   python3 -m pip install websockets
    ```
 
 ## Minimal client script
 
-Save as `phase3-test.py`, then run `python phase3-test.py`.
+Save as `phase3-test.py`, then run `python3 phase3-test.py`.
 
 ```python
 import asyncio

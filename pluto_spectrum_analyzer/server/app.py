@@ -17,3 +17,7 @@ def create_app(engine: Engine | None = None) -> FastAPI:
     app.include_router(router)
     app.include_router(ws_router)
     return app
+
+
+# Provide a default app instance for non-factory uvicorn usage.
+app = create_app()

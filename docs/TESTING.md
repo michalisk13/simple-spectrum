@@ -4,7 +4,7 @@
 * Run unit tests (protocol schema and payload header vectors):
 
 ```bash
-python -m pytest
+python3 -m pytest
 ```
 
 ### Hardware-dependent checks (manual)
