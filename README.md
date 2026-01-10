@@ -74,6 +74,9 @@ The dev server runs on port 5173 and proxies API calls from `/api` to
 The frontend uses a typed API client wrapper (`frontend/src/api/client.ts`) and
 Mantine notifications (`frontend/src/components/notifications/notify.tsx`) to
 surface API errors without blocking the UI.
+The WebSocket discovery hook lives in `frontend/src/hooks/useWebSocket.ts` with
+supporting types in `frontend/src/ws/`. Set `VITE_WS_BASE_URL` in your frontend
+environment to point at a non-default backend host if needed.
 
 ## Usage guide
 ### Typical workflows
