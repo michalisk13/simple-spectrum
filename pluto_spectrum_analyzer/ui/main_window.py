@@ -17,6 +17,7 @@ from pyqtgraph.exporters import ImageExporter
 from pyqtgraph.Qt import QtCore, QtGui, QtWidgets
 from pluto_spectrum_analyzer.config import SpectrumConfig
 from pluto_spectrum_analyzer.dsp.processor import SpectrumProcessor
+from pluto_spectrum_analyzer.engine import Engine
 from pluto_spectrum_analyzer.persistence import (
     Calibration,
     STATE_PATH,
@@ -24,14 +25,19 @@ from pluto_spectrum_analyzer.persistence import (
     save_state,
     update_recent_uris,
 )
-from pluto_spectrum_analyzer.sdr.pluto import PlutoSdr
+from pluto_spectrum_analyzer.protocol import (
+    EngineErrorFrame,
+    EngineFrame,
+    EngineSpectrogramFrame,
+    EngineSpectrumFrame,
+    EngineStatusFrame,
+)
 from pluto_spectrum_analyzer.ui.dialogs import (
     AboutDialog,
     CalibrationDialog,
     DeviceInfoDialog,
     SdrSettingsDialog,
 )
-from pluto_spectrum_analyzer.worker import SpectrumWorker
 
 
 class HoverReadout:
@@ -98,11 +104,15 @@ class SpectrumViewBox(pg.ViewBox):
 
 
 
+class FrameRelay(QtCore.QObject):
+    frame_received = QtCore.pyqtSignal(object)
+
+
 class SpectrumWindow(QtWidgets.QMainWindow):
     """
     Main UI class.
-    All SDR actions go through PlutoSdr.
-    All DSP goes through SpectrumProcessor.
+    All SDR actions go through the Engine.
+    All DSP stays in the processing pipeline.
     """
 
     # Span steps match common SA presets (200 kHz .. 20 MHz).
@@ -211,10 +221,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         pg.setConfigOption("background", (15, 15, 16))
         pg.setConfigOption("foreground", (200, 200, 200))
 
-        self.sdr: Optional[PlutoSdr] = None
-        self.worker: Optional[SpectrumWorker] = None
+        self.engine = Engine(self.cfg)
         self.connected_uri: Optional[str] = None
-        self.proc = SpectrumProcessor(cfg.fft_size, cfg.window)
         self.hover = HoverReadout()
 
         self.last_update_ts: Optional[float] = None
@@ -226,7 +234,9 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.latest_power: Optional[np.ndarray] = None
         self.latest_display: Optional[np.ndarray] = None
         self.latest_freqs: Optional[np.ndarray] = None
-        self.latest_payload: Optional[Dict] = None
+        self.latest_spectrum_frame: Optional[EngineSpectrumFrame] = None
+        self.latest_spectrogram_frame: Optional[EngineSpectrogramFrame] = None
+        self.latest_status_frame: Optional[EngineStatusFrame] = self.engine.status()
         self.latest_rbw: Optional[float] = None
         self.latest_peaks: Optional[np.ndarray] = None
         self.marker1: Optional[int] = None
@@ -275,6 +285,18 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self._cached_plot_splitter_sizes: Optional[list[int]] = None
         self._cached_spectrogram_splitter_sizes: Optional[list[int]] = None
         self._cached_settings_splitter_sizes: Optional[list[int]] = None
+
+        self.frame_relay = FrameRelay()
+        self.frame_relay.frame_received.connect(self.on_engine_frame)
+        self.engine.subscribe(self.frame_relay.frame_received.emit)
+        self.engine.apply_config(
+            spectrogram_enabled=self.spectrogram_enabled,
+            spectrogram_rate=self.spectrogram_rate,
+            spectrogram_time_span_s=self.spectrogram_span_s,
+            spectrogram_min_db=self.spectrogram_min_db,
+            spectrogram_max_db=self.spectrogram_max_db,
+            spectrogram_cmap=self.spectrogram_cmap,
+        )
 
         self._build_ui()
         self._wire_events()
@@ -1630,24 +1652,19 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         QtCore.QTimer.singleShot(0, self._restore_splitter_sizes)
 
     def _apply_sdr_state(self) -> None:
-        if self.sdr is None or self.worker is None:
-            return
-        with QtCore.QMutexLocker(self.worker._lock):
-            self.sdr.set_center_hz(self.cfg.center_hz)
-            self.sdr.set_gain_mode(self.cfg.gain_mode)
-            self.sdr.set_gain_db(self.cfg.gain_db)
-        self.worker.queue_config(
-            {
-                "span_hz": self.cfg.sample_rate_hz,
-                "rf_bw_hz": self.cfg.rf_bw_hz,
-                "fft_size": self.cfg.fft_size,
-                "buffer_factor": self.cfg.buffer_factor,
-                "window": self.cfg.window,
-                "detector": self.cfg.detector,
-                "overlap": self.cfg.overlap,
-                "vbw_mode": self.cfg.vbw_mode,
-                "vbw_hz": self.cfg.vbw_hz,
-            }
+        self.engine.apply_config(
+            center_hz=self.cfg.center_hz,
+            gain_mode=self.cfg.gain_mode,
+            gain_db=self.cfg.gain_db,
+            span_hz=self.cfg.sample_rate_hz,
+            rf_bw_hz=self.cfg.rf_bw_hz,
+            fft_size=self.cfg.fft_size,
+            buffer_factor=self.cfg.buffer_factor,
+            window=self.cfg.window,
+            detector=self.cfg.detector,
+            overlap=self.cfg.overlap,
+            vbw_mode=self.cfg.vbw_mode,
+            vbw_hz=self.cfg.vbw_hz,
         )
 
     def _update_amp_modes(self):
@@ -1736,7 +1753,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         save_state(data)
 
     def _is_connected(self) -> bool:
-        return self.sdr is not None and self.worker is not None
+        return bool(self.engine.status().connected)
 
     def _update_disconnected_overlay(self, visible: bool) -> None:
         if not visible:
@@ -1825,20 +1842,14 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                     "SDR URI cannot be empty.",
                 )
             return False
-        try:
-            self.sdr = PlutoSdr(self.cfg)
-        except Exception as exc:
-            self.sdr = None
+        if not self.engine.connect(uri=self.cfg.uri):
             if show_error_dialog:
-                self._show_connection_error(self.cfg.uri, exc)
+                last_error = self.engine.last_error
+                error_text = last_error.message if last_error else "No device found"
+                self._show_connection_error(self.cfg.uri, RuntimeError(error_text))
             self._update_connection_ui(connected=False)
             return False
 
-        self.proc.update_fft_size(self.cfg.fft_size, self.cfg.window)
-        self.worker = SpectrumWorker(self.sdr, self.proc, self.cfg)
-        self.worker.new_data.connect(self.on_new_data)
-        self.worker.connection_error.connect(self.on_worker_error)
-        self.worker.start()
         self._apply_sdr_state()
 
         self.connected_uri = self.cfg.uri
@@ -1848,6 +1859,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         if start_capture:
             self.run_state = True
+        self.engine.set_running(self.run_state)
 
         self._update_connection_ui(connected=True)
         self.snap_x_to_span()
@@ -1867,20 +1879,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         )
 
     def disconnect_sdr(self) -> None:
-        if self.worker is not None:
-            self.worker.connection_error.disconnect(self.on_worker_error)
-            self.worker.stop()
-            self.worker.wait(1000)
-            self.worker = None
-        if self.sdr is not None:
-            try:
-                self.sdr.close()
-            except Exception:
-                pass
-            self.sdr = None
+        self.engine.disconnect()
         self.connected_uri = None
 
-        self.latest_payload = None
+        self.latest_spectrum_frame = None
+        self.latest_spectrogram_frame = None
+        self.latest_status_frame = self.engine.status()
         self.latest_power = None
         self.latest_display = None
         self.latest_freqs = None
@@ -1895,24 +1899,12 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.status_message.setText("SDR disconnected")
 
     def _set_cfg(self, **kwargs) -> None:
-        # Update shared config with worker lock to avoid race conditions.
-        if self.worker is None:
-            for key, value in kwargs.items():
-                setattr(self.cfg, key, value)
-            if hasattr(self, "instrument_status"):
-                self._update_status_readout()
-            return
-        with QtCore.QMutexLocker(self.worker._lock):
-            for key, value in kwargs.items():
-                setattr(self.cfg, key, value)
+        self.engine.apply_config(**kwargs)
         if hasattr(self, "instrument_status"):
             self._update_status_readout()
 
     def _queue_pending_config(self, **kwargs) -> None:
-        self._set_cfg(**kwargs)
-        if self.worker is None:
-            return
-        self.worker.queue_config(kwargs)
+        self.engine.apply_config(**kwargs)
 
     def _parse_value_to_hz(self, value_str: str, unit: str) -> int:
         value = float(value_str.strip())
@@ -2049,16 +2041,8 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
     def snap_x_to_span(self):
         # Keep the visible span centered on the LO.
-        if self.sdr is not None:
-            try:
-                lo = float(self.sdr.lo)
-                sr = float(self.sdr.sample_rate)
-            except Exception:
-                self.disconnect_sdr()
-                return
-        else:
-            lo = float(self.cfg.center_hz)
-            sr = float(self.cfg.sample_rate_hz)
+        lo = float(self.cfg.center_hz)
+        sr = float(self.cfg.sample_rate_hz)
         self._sync_plot_range(lo, sr)
 
     def _sync_plot_range(self, lo: float, sr: float) -> None:
@@ -2077,9 +2061,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         try:
             hz = self._parse_value_to_hz(self.freq_edit.text(), self.freq_unit.currentText())
             self._set_cfg(center_hz=hz)
-            if self._is_connected():
-                with QtCore.QMutexLocker(self.worker._lock):
-                    self.sdr.set_center_hz(hz)
             self._sync_center_edit()
             self.snap_x_to_span()
             if self._is_connected():
@@ -2095,9 +2076,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             base = int(self.cfg.center_hz)
             hz = int(round(base + direction * step))
             self._set_cfg(center_hz=hz)
-            if self._is_connected():
-                with QtCore.QMutexLocker(self.worker._lock):
-                    self.sdr.set_center_hz(hz)
             self._sync_center_edit()
             self.snap_x_to_span()
             delta = self.cfg.center_hz - base
@@ -2119,9 +2097,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         # Clamp span to Pluto-safe range (>=1 kHz, <= max preset span).
         span_hz = int(max(1_000, min(span_hz, self.SPAN_STEPS_HZ[-1])))
         rf_bw_hz = self._clamp_rfbw(min(span_hz, self.cfg.rf_bw_hz), span_hz=span_hz)
-        self._set_cfg(sample_rate_hz=span_hz, rf_bw_hz=rf_bw_hz)
-        if self.worker is not None:
-            self.worker.queue_config({"span_hz": span_hz, "rf_bw_hz": rf_bw_hz})
+        self._queue_pending_config(span_hz=span_hz, rf_bw_hz=rf_bw_hz)
         self._sync_span_edit()
         self._sync_rfbw_edit()
         self._refresh_rbw_options()
@@ -2159,9 +2135,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         try:
             hz = self._parse_value_to_hz(self.rfbw_edit.text(), self.rfbw_unit.currentText())
             hz = self._clamp_rfbw(min(hz, self.cfg.sample_rate_hz), span_hz=self.cfg.sample_rate_hz)
-            self._set_cfg(rf_bw_hz=hz)
-            if self.worker is not None:
-                self.worker.queue_config({"rf_bw_hz": hz})
+            self._queue_pending_config(rf_bw_hz=hz)
             self._sync_rfbw_edit()
             self.status_message.setText(f"RF BW set to {hz} Hz")
         except Exception as exc:
@@ -2175,9 +2149,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 step_values = [limit]
             rf_bw_hz = self._step_from_list(self.cfg.rf_bw_hz, step_values, direction)
             rf_bw_hz = self._clamp_rfbw(min(rf_bw_hz, self.cfg.sample_rate_hz), span_hz=self.cfg.sample_rate_hz)
-            self._set_cfg(rf_bw_hz=rf_bw_hz)
-            if self.worker is not None:
-                self.worker.queue_config({"rf_bw_hz": rf_bw_hz})
+            self._queue_pending_config(rf_bw_hz=rf_bw_hz)
             self._sync_rfbw_edit()
             self.status_message.setText(f"RF BW set to {rf_bw_hz} Hz")
         except Exception as exc:
@@ -2186,9 +2158,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def on_gainmode_changed(self, mode: str):
         try:
             self._set_cfg(gain_mode=mode)
-            if self._is_connected():
-                with QtCore.QMutexLocker(self.worker._lock):
-                    self.sdr.set_gain_mode(mode)
 
             is_manual = mode == "manual"
             self.gain_edit.setEnabled(self._is_connected() and is_manual)
@@ -2206,9 +2175,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         try:
             g = int(float(self.gain_edit.text().strip()))
             self._set_cfg(gain_db=g)
-            if self._is_connected():
-                with QtCore.QMutexLocker(self.worker._lock):
-                    self.sdr.set_gain_db(g)
             if self._is_connected():
                 self.status_message.setText(f"Manual gain set to {self.cfg.gain_db} dB")
             else:
@@ -2406,6 +2372,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.run_state = not self.run_state
         self.run_stop_btn.setText("Stop" if self.run_state else "Run")
         self._set_button_role(self.run_stop_btn, "danger" if self.run_state else "primary")
+        self.engine.set_running(self.run_state)
         if self.run_state:
             self.single_pending = False
 
@@ -2416,6 +2383,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.run_state = True
         self.run_stop_btn.setText("Stop")
         self._set_button_role(self.run_stop_btn, "danger")
+        self.engine.set_running(True)
 
     def apply_preset(self, preset_name: str):
         if preset_name == "Fast View":
@@ -2458,20 +2426,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             vbw_hz=vbw_hz,
             rbw_mode="Manual",
         )
-        if self.worker is not None:
-            self.worker.queue_config(
-                {
-                    "span_hz": span_hz,
-                    "rf_bw_hz": span_hz,
-                    "fft_size": fft_size,
-                    "buffer_factor": self.cfg.buffer_factor,
-                    "window": window,
-                    "detector": detector,
-                    "overlap": overlap,
-                    "vbw_mode": vbw_mode,
-                    "vbw_hz": vbw_hz,
-                }
-            )
 
         temp_proc = SpectrumProcessor(fft_size, window)
         self.cfg.rbw_hz = temp_proc.rbw_hz(float(span_hz))
@@ -2543,8 +2497,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.status_message.setText("SDR is not connected")
             return
         target = int(self.latest_freqs[self.marker1])
-        with QtCore.QMutexLocker(self.worker._lock):
-            self.sdr.set_center_hz(target)
+        self._set_cfg(center_hz=target)
         self._sync_center_edit()
         self.snap_x_to_span()
 
@@ -2683,7 +2636,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if new_uri == self.cfg.uri:
             self._persist_state()
             return
-        self.cfg.uri = new_uri
+        self.engine.apply_config(uri=new_uri)
         self._persist_state()
         self.status_message.setText(f"SDR URI updated to {new_uri}")
 
@@ -2691,13 +2644,18 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         if not self._is_connected():
             self.status_message.setText("SDR is not connected")
             return
+        frame = self.latest_spectrum_frame
+        sample_rate = frame.sample_rate_hz if frame else float(self.cfg.sample_rate_hz)
+        lo = frame.lo_hz if frame else float(self.cfg.center_hz)
+        rf_bw = frame.rf_bw_hz if frame else float(self.cfg.rf_bw_hz)
+        gain_db = frame.gain_db if frame else float(self.cfg.gain_db)
         dialog = DeviceInfoDialog(
             self,
-            sample_rate=self.sdr.sample_rate,
-            lo=self.sdr.lo,
-            rf_bw=self.sdr.rf_bw,
+            sample_rate=sample_rate,
+            lo=lo,
+            rf_bw=rf_bw,
             gain_mode=self.cfg.gain_mode,
-            gain_db=self.sdr.gain_db,
+            gain_db=gain_db,
             fft_size=self.cfg.fft_size,
             buffer_factor=self.cfg.buffer_factor,
         )
@@ -2745,6 +2703,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
         self.spectrogram_enabled = checked
         self._apply_spectrogram_visibility()
         self._apply_spectrogram_rate_limit()
+        self._sync_engine_spectrogram_settings()
 
     def on_toggle_spectrogram_lut(self, checked: bool):
         self.spectrogram_lut_enabled = checked
@@ -2765,6 +2724,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_span_s = max(1.0, self.spectrogram_rows / max(self.spectrogram_rate, 1e-3))
         self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
         self.spectrogram_buffer = None
+        self._sync_engine_spectrogram_settings()
 
     def on_spectrogram_mode(self, value: str):
         self._set_cfg(spectrogram_mode=value)
@@ -2778,6 +2738,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
     def on_spectrogram_cmap(self, value: str):
         self.spectrogram_cmap = value
         self._update_spectrogram_colormap()
+        self._sync_engine_spectrogram_settings()
 
     def on_spectrogram_range(self):
         try:
@@ -2788,6 +2749,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_max_db = float(self.spectrogram_max_edit.text().strip())
         except ValueError:
             self.spectrogram_max_db = 0.0
+        self._sync_engine_spectrogram_settings()
 
     def on_spectrogram_auto_range(self, checked: bool):
         self._update_spectrogram_scale_controls()
@@ -2815,19 +2777,25 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             self.spectrogram_perf_label.setVisible(False)
         self._set_combo_to_nearest(self.spectrogram_speed_cb, min(self.spectrogram_rate, max_rate))
         self.spectrogram_rows = max(1, int(round(self.spectrogram_span_s * self.spectrogram_rate)))
+        self._sync_engine_spectrogram_settings()
+
+    def _sync_engine_spectrogram_settings(self) -> None:
+        self.engine.apply_config(
+            spectrogram_enabled=self.spectrogram_enabled,
+            spectrogram_rate=self.spectrogram_rate,
+            spectrogram_time_span_s=self.spectrogram_span_s,
+            spectrogram_min_db=self.spectrogram_min_db,
+            spectrogram_max_db=self.spectrogram_max_db,
+            spectrogram_cmap=self.spectrogram_cmap,
+        )
 
     def zoom_span_at(self, center_hz: float, factor: float) -> None:
         # Zoom span around cursor and enqueue SDR changes safely.
         # Clamp zoom to 1 kHz .. 20 MHz to stay within Pluto bandwidth.
         span = int(max(1_000, min(20_000_000, self.cfg.sample_rate_hz * factor)))
         self._set_cfg(center_hz=int(center_hz))
-        if self._is_connected():
-            with QtCore.QMutexLocker(self.worker._lock):
-                self.sdr.set_center_hz(int(center_hz))
         rf_bw = self._clamp_rfbw(min(span, self.cfg.rf_bw_hz), span_hz=span)
-        self._set_cfg(sample_rate_hz=span, rf_bw_hz=rf_bw)
-        if self.worker is not None:
-            self.worker.queue_config({"span_hz": span, "rf_bw_hz": rf_bw})
+        self._queue_pending_config(span_hz=span, rf_bw_hz=rf_bw)
         self._sync_center_edit()
         self._sync_span_edit()
         self._sync_rfbw_edit()
@@ -3010,10 +2978,6 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         buffer_factor = max(2, self.cfg.buffer_factor)
         self._set_cfg(fft_size=fft_size, buffer_factor=buffer_factor)
-        if self.worker is not None:
-            self.worker.queue_config(
-                {"fft_size": fft_size, "buffer_factor": buffer_factor, "window": window}
-            )
         temp_proc = SpectrumProcessor(fft_size, window)
         self.cfg.rbw_hz = temp_proc.rbw_hz(fs)
         self._sync_rbw_dropdown()
@@ -3321,14 +3285,31 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             if self.spectrogram_enabled and self.spectrogram_lut_enabled:
                 self.spectrogram_splitter.setSizes(self.spectrogram_splitter_sizes)
 
-    def on_new_data(self, payload: Dict):
-        # Store latest payload for the UI refresh timer.
-        self.latest_payload = payload
-
-    def on_worker_error(self, message: str) -> None:
-        if not self._is_connected():
+    def on_engine_frame(self, frame: EngineFrame) -> None:
+        if isinstance(frame, EngineSpectrumFrame):
+            self.latest_spectrum_frame = frame
             return
-        self.disconnect_sdr()
+        if isinstance(frame, EngineSpectrogramFrame):
+            self.latest_spectrogram_frame = frame
+            return
+        if isinstance(frame, EngineStatusFrame):
+            self._handle_status_frame(frame)
+            return
+        if isinstance(frame, EngineErrorFrame):
+            self._handle_error_frame(frame)
+
+    def _handle_status_frame(self, frame: EngineStatusFrame) -> None:
+        self.latest_status_frame = frame
+        self.connected_uri = frame.uri if frame.connected else None
+        self._update_connection_ui(frame.connected)
+
+    def _handle_error_frame(self, frame: EngineErrorFrame) -> None:
+        if self.connected_uri is None and not self._is_connected():
+            return
+        if self.latest_status_frame and self.latest_status_frame.message == "connection failed":
+            return
+        if self._is_connected():
+            self.disconnect_sdr()
         self.status_message.setText("SDR disconnected unexpectedly")
         QtWidgets.QMessageBox.warning(
             self,
@@ -3336,7 +3317,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             "\n".join(
                 [
                     "SDR connection lost.",
-                    f"Error: {message}",
+                    f"Error: {frame.message}",
                     "The application will stay open in disconnected mode.",
                 ]
             ),
@@ -3356,23 +3337,36 @@ class SpectrumWindow(QtWidgets.QMainWindow):
                 self.avg_trace = self.avg_trace + (power - self.avg_trace) / float(count)
         return self.avg_trace
 
+    @staticmethod
+    def _freqs_from_frame(frame: EngineSpectrumFrame) -> np.ndarray:
+        return np.linspace(
+            frame.freq_start_hz,
+            frame.freq_stop_hz,
+            frame.n_bins,
+            dtype=np.float64,
+        )
+
     def refresh_display(self):
-        if self.latest_payload is None:
+        if self.latest_spectrum_frame is None:
             return
         if not self.run_state and not self.single_pending:
             return
-        payload = self.latest_payload
-        power = payload["power"]
-        rbw = payload["rbw"]
-        timestamp = payload["timestamp"]
-        freqs = payload["freqs"]
-        spectrogram_db = payload.get("spectrogram_db")
+        spectrum_frame = self.latest_spectrum_frame
+        power = spectrum_frame.y
+        rbw = spectrum_frame.rbw_hz
+        timestamp = spectrum_frame.ts_monotonic_ns / 1e9
+        freqs = self._freqs_from_frame(spectrum_frame)
+        spectrogram_frame = self.latest_spectrogram_frame
 
         # Apply VBW smoothing in linear power.
         power = self._apply_vbw(power, rbw, timestamp)
         live_display = self._power_to_display(power, rbw_hz=rbw)
-        if spectrogram_db is not None:
-            self._update_spectrogram(freqs, spectrogram_db, timestamp)
+        if spectrogram_frame is not None:
+            self._update_spectrogram(
+                freqs,
+                spectrogram_frame.row_db,
+                spectrogram_frame.row_ts_monotonic_ns / 1e9,
+            )
 
         trace1_mode = self.cfg.trace_type
         if trace1_mode == "Average":
@@ -3430,7 +3424,10 @@ class SpectrumWindow(QtWidgets.QMainWindow):
             vb.setLimits(xMin=x_min, xMax=x_max)
             self.last_axis_xlim = (x_min, x_max)
         else:
-            self._sync_plot_range(float(payload["lo"]), float(payload["fs"]))
+            self._sync_plot_range(
+                float(spectrum_frame.lo_hz),
+                float(spectrum_frame.sample_rate_hz),
+            )
 
         self._update_ref_level(display)
         span = float(freqs[-1] - freqs[0]) if len(freqs) > 1 else 0.0
@@ -3448,7 +3445,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         # Update status readout with current instrument state.
         self.cfg.rbw_hz = rbw
-        self.enbw_label.setText(f"{payload['enbw_bins']:.2f}")
+        self.enbw_label.setText(f"{spectrum_frame.enbw_bins:.2f}")
         update_hz = 1000.0 / max(1.0, float(self.cfg.update_ms))
         self.instrument_status.setText(
             " | ".join(

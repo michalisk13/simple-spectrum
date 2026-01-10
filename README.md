@@ -14,21 +14,54 @@ Pluto Spectrum Analyzer is a real-time FFT spectrum viewer for the ADALM-Pluto S
 
 ## Requirements
 - Python 3.9+
-- Packages: pyadi-iio, numpy, pyqtgraph, PyQt5/PyQt6
+- Packages: pyadi-iio, numpy, pyqtgraph, PyQt5/PyQt6, jsonschema
+- Frontend: Node.js + npm (or compatible package manager)
 - OS: Windows and Linux are supported (Linux recommended for USB gadget mode)
+
+### Server mode dependencies
+If you want to run the headless FastAPI server:
+- Packages: fastapi, uvicorn, websockets
 
 ## Install
 1. Create a virtual environment (recommended).
 2. Install dependencies:
    ```bash
-   python -m pip install pyadi-iio numpy pyqtgraph PyQt6
+   python3 -m pip install pyadi-iio numpy pyqtgraph PyQt6 jsonschema
    ```
-3. Ensure the Pluto SDR is reachable via USB or Ethernet gadget mode.
+3. Optional (server mode):
+   ```bash
+   python3 -m pip install fastapi uvicorn websockets
+   ```
+4. Ensure the Pluto SDR is reachable via USB or Ethernet gadget mode.
+
+### Optional developer dependencies
+If you want to run the unit tests:
+```bash
+python3 -m pip install pytest
+```
 
 ## How to run
 ```bash
-python spectrum-monitor.py
+python3 spectrum-monitor.py
 ```
+
+### Server mode (headless API)
+Run the FastAPI server for REST/WebSocket access:
+```bash
+python3 -m uvicorn pluto_spectrum_analyzer.server.app:app --reload
+```
+
+See `docs/API.md` for the list of available REST endpoints and WebSocket
+streaming details.
+
+### Frontend dev
+From the `frontend/` directory:
+```bash
+npm install
+npm run dev
+```
+The dev server runs on port 5173 and proxies API calls from `/api` to
+`http://localhost:8000`. See `docs/FRONTEND_DEV.md` for more detail.
 
 ## Usage guide
 ### Typical workflows
@@ -63,7 +96,6 @@ If the Pluto is not reachable, the test button will report the failure. The appl
 - **Performance tips**: lower FFT size, lower update rate, and disable the spectrogram for best performance.
 
 ## Roadmap
-- Waterfall rendering improvements
-- Multi-receiver support
-- IQ recording
-- Calibration assistant
+The project is mid-transition from the PyQt UI to a web UI. The backend API and
+WebSocket streaming are in place; the next phase is to scaffold the web
+frontend. See `docs/PLAN.md` for the detailed phase checklist.
