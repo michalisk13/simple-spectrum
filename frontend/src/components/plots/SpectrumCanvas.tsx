@@ -4,7 +4,7 @@ const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
 export type SpectrumCanvasProps = {
-  trace: number[];
+  trace: Float32Array | number[];
 };
 
 const SpectrumCanvas = ({ trace }: SpectrumCanvasProps) => {
@@ -12,7 +12,16 @@ const SpectrumCanvas = ({ trace }: SpectrumCanvasProps) => {
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
 
   const traceStats = useMemo(() => {
-    const max = trace.length ? Math.max(...trace) : 1;
+    if (!trace.length) {
+      return { max: 1 };
+    }
+    let max = trace[0] ?? 1;
+    for (let i = 1; i < trace.length; i += 1) {
+      const value = trace[i];
+      if (value > max) {
+        max = value;
+      }
+    }
     return { max: max || 1 };
   }, [trace]);
 

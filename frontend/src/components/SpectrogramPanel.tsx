@@ -1,27 +1,66 @@
 import { Badge, Group, Paper, Text } from "@mantine/core";
 import { IconChartHistogram } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
-import SpectrogramCanvas from "./plots/SpectrogramCanvas";
+import { useCallback, useMemo, useRef, useState, type MutableRefObject } from "react";
+import type { EngineStatus } from "../api/types";
 import { useAnimationFrame } from "../hooks/useAnimationFrame";
-import { generateSpectrogramRow } from "../utils/mockData";
+import type { SpectrogramFrame, SpectrogramMetaFrame } from "../ws/types";
+import SpectrogramCanvas from "./plots/SpectrogramCanvas";
 
-const ROW_POINTS = 512;
+const formatDb = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  return `${value.toFixed(0)} dB`;
+};
 
-function SpectrogramPanel() {
-  // Track mock phase so the waterfall bands drift over time.
-  const phaseRef = useRef(0);
-  // Store the latest row so the canvas updates as new data arrives.
-  const [row, setRow] = useState(() =>
-    generateSpectrogramRow(ROW_POINTS, phaseRef.current),
-  );
+type SpectrogramPanelProps = {
+  statusFrame: EngineStatus | null;
+  spectrogramFrameRef: MutableRefObject<SpectrogramFrame | null>;
+};
 
-  const updateRow = useCallback((deltaMs: number) => {
-    phaseRef.current += deltaMs * 0.0016;
-    setRow(generateSpectrogramRow(ROW_POINTS, phaseRef.current));
-  }, []);
+function SpectrogramPanel({
+  statusFrame,
+  spectrogramFrameRef,
+}: SpectrogramPanelProps) {
+  const [row, setRow] = useState<Float32Array | Uint8Array | null>(null);
+  const [meta, setMeta] = useState<SpectrogramMetaFrame | null>(null);
+  const lastSeqRef = useRef<number | null>(null);
 
-  // Drive the mock spectrogram at 20 fps to validate the buffer pipeline.
+  const updateRow = useCallback(() => {
+    const frame = spectrogramFrameRef.current;
+    if (!frame) {
+      if (lastSeqRef.current !== null) {
+        lastSeqRef.current = null;
+        setRow(null);
+        setMeta(null);
+      }
+      return;
+    }
+
+    if (frame.meta.seq !== lastSeqRef.current) {
+      lastSeqRef.current = frame.meta.seq;
+      setRow(frame.payload);
+      setMeta(frame.meta);
+    }
+  }, [spectrogramFrameRef]);
+
   useAnimationFrame(updateRow, 20);
+
+  const spectrogramInfo = useMemo(() => {
+    if (!meta) {
+      return null;
+    }
+    return {
+      colormap: meta.colormap,
+      dbMin: meta.db_min,
+      dbMax: meta.db_max,
+      quantized: meta.quantized,
+      dtype: meta.dtype,
+    };
+  }, [meta]);
+
+  const isConnected = statusFrame?.connected ?? false;
+  const hasRow = Boolean(row && row.length);
 
   return (
     <Paper className="panel-surface" radius="lg" p="md">
@@ -34,8 +73,16 @@ function SpectrogramPanel() {
           </Text>
         </Group>
         <Group gap="xs">
-          <Badge variant="light">Mode: PSD</Badge>
-          <Badge variant="light">15 slices/s</Badge>
+          <Badge variant="light">
+            {spectrogramInfo
+              ? `Mode: ${spectrogramInfo.quantized ? "Quantized" : "Float"}`
+              : "Mode: --"}
+          </Badge>
+          <Badge variant="light">
+            {statusFrame
+              ? `${statusFrame.spectrogram_rate.toFixed(1)} slices/s`
+              : "Slices/s --"}
+          </Badge>
         </Group>
       </Group>
       <Group gap="lg" className="panel-meta">
@@ -44,7 +91,9 @@ function SpectrogramPanel() {
             Time span
           </Text>
           <Text size="sm" fw={500}>
-            20 s
+            {statusFrame
+              ? `${statusFrame.spectrogram_time_span_s.toFixed(1)} s`
+              : "--"}
           </Text>
         </div>
         <div className="panel-meta-item">
@@ -52,7 +101,7 @@ function SpectrogramPanel() {
             Colormap
           </Text>
           <Text size="sm" fw={500}>
-            Viridis
+            {spectrogramInfo ? spectrogramInfo.colormap : "--"}
           </Text>
         </div>
         <div className="panel-meta-item">
@@ -60,7 +109,11 @@ function SpectrogramPanel() {
             Range
           </Text>
           <Text size="sm" fw={500}>
-            -120 dB to 0 dB
+            {spectrogramInfo
+              ? `${formatDb(spectrogramInfo.dbMin)} to ${formatDb(
+                  spectrogramInfo.dbMax,
+                )}`
+              : "--"}
           </Text>
         </div>
         <div className="panel-meta-item">
@@ -68,12 +121,16 @@ function SpectrogramPanel() {
             Auto range
           </Text>
           <Text size="sm" fw={500}>
-            ±2σ
+            --
           </Text>
         </div>
       </Group>
       <div className="plot-container">
-        <SpectrogramCanvas row={row} />
+        {!isConnected || !hasRow ? (
+          <div className="panel-placeholder">Awaiting spectrogram stream…</div>
+        ) : (
+          <SpectrogramCanvas row={row ?? new Float32Array()} meta={meta} />
+        )}
       </div>
     </Paper>
   );

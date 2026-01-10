@@ -22,8 +22,8 @@ function LayoutShell() {
   // Track if a connect/disconnect action is in progress.
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Connect to the WebSocket stream and log StatusFrame payloads.
-  useWebSocket();
+  const { statusFrame, latestSpectrumFrameRef, latestSpectrogramFrameRef } =
+    useWebSocket();
 
   // Create a single API client instance for this layout.
   const apiClient = useMemo(() => new ApiClient(), []);
@@ -56,6 +56,14 @@ function LayoutShell() {
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
+
+  useEffect(() => {
+    if (!statusFrame) {
+      return;
+    }
+    setStatus(statusFrame);
+    setIsChecking(false);
+  }, [statusFrame]);
 
   // Map status + loading to a friendly UI badge state.
   const connectionState: ConnectionState = isChecking
@@ -108,13 +116,19 @@ function LayoutShell() {
           <PanelGroup direction="vertical">
             <Panel defaultSize={60} minSize={40}>
               <Box className="panel-fill">
-                <SpectrumPanel />
+                <SpectrumPanel
+                  statusFrame={statusFrame}
+                  spectrumFrameRef={latestSpectrumFrameRef}
+                />
               </Box>
             </Panel>
             <PanelResizeHandle className="resize-handle" />
             <Panel defaultSize={40} minSize={30}>
               <Box className="panel-fill">
-                <SpectrogramPanel />
+                <SpectrogramPanel
+                  statusFrame={statusFrame}
+                  spectrogramFrameRef={latestSpectrogramFrameRef}
+                />
               </Box>
             </Panel>
           </PanelGroup>

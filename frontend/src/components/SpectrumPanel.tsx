@@ -1,27 +1,75 @@
 import { Badge, Group, Paper, Text } from "@mantine/core";
 import { IconWaveSine } from "@tabler/icons-react";
-import { useCallback, useRef, useState } from "react";
-import SpectrumCanvas from "./plots/SpectrumCanvas";
+import { useCallback, useMemo, useRef, useState, type MutableRefObject } from "react";
+import type { EngineStatus } from "../api/types";
 import { useAnimationFrame } from "../hooks/useAnimationFrame";
-import { generateSpectrumTrace } from "../utils/mockData";
+import type { SpectrumFrame, SpectrumMetaFrame } from "../ws/types";
+import SpectrumCanvas from "./plots/SpectrumCanvas";
 
-const TRACE_POINTS = 512;
+const formatHz = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  if (value >= 1e9) {
+    return `${(value / 1e9).toFixed(3)} GHz`;
+  }
+  if (value >= 1e6) {
+    return `${(value / 1e6).toFixed(2)} MHz`;
+  }
+  if (value >= 1e3) {
+    return `${(value / 1e3).toFixed(1)} kHz`;
+  }
+  return `${value.toFixed(0)} Hz`;
+};
 
-function SpectrumPanel() {
-  // Track mock phase so the trace animates smoothly over time.
-  const phaseRef = useRef(0);
-  // Store the current trace in state to trigger a canvas redraw.
-  const [trace, setTrace] = useState(() =>
-    generateSpectrumTrace(TRACE_POINTS, phaseRef.current),
-  );
+type SpectrumPanelProps = {
+  statusFrame: EngineStatus | null;
+  spectrumFrameRef: MutableRefObject<SpectrumFrame | null>;
+};
 
-  const updateTrace = useCallback((deltaMs: number) => {
-    phaseRef.current += deltaMs * 0.002;
-    setTrace(generateSpectrumTrace(TRACE_POINTS, phaseRef.current));
-  }, []);
+function SpectrumPanel({ statusFrame, spectrumFrameRef }: SpectrumPanelProps) {
+  const [trace, setTrace] = useState<Float32Array | null>(null);
+  const [meta, setMeta] = useState<SpectrumMetaFrame | null>(null);
+  const lastSeqRef = useRef<number | null>(null);
 
-  // Drive the mock spectrum at 20 fps to validate rendering performance.
+  const updateTrace = useCallback(() => {
+    const frame = spectrumFrameRef.current;
+    if (!frame) {
+      if (lastSeqRef.current !== null) {
+        lastSeqRef.current = null;
+        setTrace(null);
+        setMeta(null);
+      }
+      return;
+    }
+
+    if (frame.meta.seq !== lastSeqRef.current) {
+      lastSeqRef.current = frame.meta.seq;
+      setTrace(frame.payload);
+      setMeta(frame.meta);
+    }
+  }, [spectrumFrameRef]);
+
   useAnimationFrame(updateTrace, 20);
+
+  const spectrumInfo = useMemo(() => {
+    if (!meta) {
+      return null;
+    }
+    const center = (meta.freq_start_hz + meta.freq_stop_hz) / 2;
+    const span = meta.freq_stop_hz - meta.freq_start_hz;
+    return {
+      center,
+      span,
+      rbw: meta.rbw_hz,
+      vbw: meta.vbw_hz,
+      fftSize: meta.fft_size,
+      detector: meta.detector,
+    };
+  }, [meta]);
+
+  const isConnected = statusFrame?.connected ?? false;
+  const hasTrace = Boolean(trace && trace.length);
 
   return (
     <Paper className="panel-surface" radius="lg" p="md">
@@ -34,8 +82,12 @@ function SpectrumPanel() {
           </Text>
         </Group>
         <Group gap="xs">
-          <Badge variant="light">FFT 8192</Badge>
-          <Badge variant="light">Update 100 ms</Badge>
+          <Badge variant="light">
+            FFT {spectrumInfo ? spectrumInfo.fftSize : "--"}
+          </Badge>
+          <Badge variant="light">
+            {spectrumInfo ? `${formatHz(spectrumInfo.rbw)} RBW` : "RBW --"}
+          </Badge>
         </Group>
       </Group>
       <Group gap="lg" className="panel-meta">
@@ -44,7 +96,7 @@ function SpectrumPanel() {
             Center
           </Text>
           <Text size="sm" fw={500}>
-            2.437 GHz
+            {spectrumInfo ? formatHz(spectrumInfo.center) : "--"}
           </Text>
         </div>
         <div className="panel-meta-item">
@@ -52,7 +104,7 @@ function SpectrumPanel() {
             Span
           </Text>
           <Text size="sm" fw={500}>
-            20 MHz
+            {spectrumInfo ? formatHz(spectrumInfo.span) : "--"}
           </Text>
         </div>
         <div className="panel-meta-item">
@@ -60,7 +112,9 @@ function SpectrumPanel() {
             RBW / VBW
           </Text>
           <Text size="sm" fw={500}>
-            4.9 kHz / 3 kHz
+            {spectrumInfo
+              ? `${formatHz(spectrumInfo.rbw)} / ${formatHz(spectrumInfo.vbw)}`
+              : "--"}
           </Text>
         </div>
         <div className="panel-meta-item">
@@ -68,7 +122,7 @@ function SpectrumPanel() {
             Ref / Range
           </Text>
           <Text size="sm" fw={500}>
-            0 dB / 100 dB
+            --
           </Text>
         </div>
         <div className="panel-meta-item">
@@ -76,12 +130,16 @@ function SpectrumPanel() {
             Detector
           </Text>
           <Text size="sm" fw={500}>
-            RMS
+            {spectrumInfo ? spectrumInfo.detector : "--"}
           </Text>
         </div>
       </Group>
       <div className="plot-container">
-        <SpectrumCanvas trace={trace} />
+        {!isConnected || !hasTrace ? (
+          <div className="panel-placeholder">Awaiting spectrum stream…</div>
+        ) : (
+          <SpectrumCanvas trace={trace ?? new Float32Array()} />
+        )}
       </div>
     </Paper>
   );
