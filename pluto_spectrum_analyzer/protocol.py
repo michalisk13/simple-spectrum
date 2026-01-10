@@ -172,6 +172,7 @@ def protocol_json_schema() -> dict[str, Any]:
                 "type": "object",
                 "oneOf": [
                     {
+                        "type": "object",
                         "properties": {
                             **base_fields,
                             "type": {"const": "spectrogram_meta"},
@@ -200,6 +201,7 @@ def protocol_json_schema() -> dict[str, Any]:
                         "additionalProperties": False,
                     },
                     {
+                        "type": "object",
                         "properties": {
                             **base_fields,
                             "type": {"const": "spectrogram_meta"},
@@ -229,7 +231,6 @@ def protocol_json_schema() -> dict[str, Any]:
                         "additionalProperties": False,
                     },
                 ],
-                "additionalProperties": False,
             },
             {
                 "title": "Markers Frame",
