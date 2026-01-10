@@ -29,33 +29,70 @@ import uuid
 import websockets
 
 BASE_URL = "ws://localhost:8000/ws/stream"
+MAX_FRAMES = 6
+
+
+def _print_status(status: dict) -> None:
+    print(
+        "status:",
+        f"seq={status['seq']}",
+        f"connected={status['connected']}",
+        f"message={status.get('message')!r}",
+        f"center_hz={status.get('center_hz')}",
+        f"span_hz={status.get('span_hz')}",
+        f"fft_size={status.get('fft_size')}",
+    )
+
+
+def _print_meta(meta: dict) -> None:
+    payload_id = meta.get("payload_id")
+    payload_info = f"payload_id={payload_id}" if payload_id else "payload_id=None"
+    print(
+        "meta:",
+        f"type={meta['type']}",
+        f"seq={meta['seq']}",
+        payload_info,
+        f"ts_monotonic_ns={meta.get('ts_monotonic_ns')}",
+    )
+
+
+def _assert_payload(meta: dict, payload: bytes) -> None:
+    assert payload[:4] == b"SPAY", "binary payload must include SPAY header"
+    header_payload_id = str(uuid.UUID(bytes=payload[8:24]))
+    assert header_payload_id == meta["payload_id"], "SPAY header payload_id mismatch"
 
 
 async def main() -> None:
-    async with websockets.connect(BASE_URL) as ws:
+    async with websockets.connect(BASE_URL, max_size=None) as ws:
         # 1) Status frame should arrive immediately.
         status = json.loads(await ws.recv())
-        print("status:", status["type"], status["seq"])
+        assert status["type"] == "status", "first frame must be status"
+        _print_status(status)
 
         last_seq = status["seq"]
         payload_ids = set()
 
         # 2) Read the next few frames to validate sequencing and payload order.
-        for _ in range(4):
-            meta = json.loads(await ws.recv())
-            print("meta:", meta["type"], meta["seq"])
+        for _ in range(MAX_FRAMES):
+            raw = await ws.recv()
+            if isinstance(raw, (bytes, bytearray)):
+                raise AssertionError("unexpected binary frame without metadata")
+            meta = json.loads(raw)
+            _print_meta(meta)
             assert meta["seq"] > last_seq, "seq must increment"
             last_seq = meta["seq"]
+
             payload_id = meta.get("payload_id")
-            if payload_id:
-                assert payload_id not in payload_ids, "payload_id must be unique"
-                payload_ids.add(payload_id)
-                # Binary payload must follow the metadata message.
-                payload = await ws.recv()
-                assert isinstance(payload, (bytes, bytearray)), "expected binary payload after meta"
-                assert payload[:4] == b"SPAY", "binary payload must include SPAY header"
-                header_payload_id = str(uuid.UUID(bytes=payload[8:24]))
-                assert header_payload_id == payload_id, "SPAY header payload_id mismatch"
+            if not payload_id:
+                continue
+
+            assert payload_id not in payload_ids, "payload_id must be unique"
+            payload_ids.add(payload_id)
+
+            # Binary payload must follow the metadata message.
+            payload = await ws.recv()
+            assert isinstance(payload, (bytes, bytearray)), "expected binary payload after meta"
+            _assert_payload(meta, payload)
 
 
 asyncio.run(main())
