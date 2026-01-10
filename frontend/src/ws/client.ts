@@ -1,6 +1,20 @@
 // WebSocket client wrapper for the backend streaming endpoint.
 
-import type { StatusFrame, WebSocketFrame } from "./types";
+import type {
+  SpectrogramFrame,
+  SpectrogramMetaFrame,
+  SpectrumFrame,
+  SpectrumMetaFrame,
+  StatusFrame,
+  WebSocketFrame,
+} from "./types";
+
+const SPAY_MAGIC = "SPAY";
+const SPAY_HEADER_BYTES = 32;
+const SPAY_VERSION = 1;
+const SPAY_KIND_SPECTRUM = 1;
+const SPAY_KIND_SPECTROGRAM = 2;
+const textDecoder = new TextDecoder();
 
 // Connection state values exposed to consumers of the client.
 export type WebSocketConnectionState =
@@ -14,6 +28,10 @@ type WebSocketCallbacks = {
   onConnectionStateChange?: (state: WebSocketConnectionState) => void;
   // Invoked for each status frame received from the server.
   onStatusFrame?: (frame: StatusFrame) => void;
+  // Invoked for each spectrum payload paired with metadata.
+  onSpectrumFrame?: (frame: SpectrumFrame) => void;
+  // Invoked for each spectrogram payload paired with metadata.
+  onSpectrogramFrame?: (frame: SpectrogramFrame) => void;
   // Invoked when an error occurs on the WebSocket.
   onError?: (event: Event) => void;
 };
@@ -38,6 +56,8 @@ export class WebSocketClient {
   private reconnectAttempts = 0;
   private reconnectTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private manualClose = false;
+  private pendingSpectrumMeta = new Map<string, SpectrumMetaFrame>();
+  private pendingSpectrogramMeta = new Map<string, SpectrogramMetaFrame>();
 
   constructor(options: WebSocketClientOptions, callbacks: WebSocketCallbacks) {
     // Persist the target URL for each reconnect attempt.
@@ -56,6 +76,7 @@ export class WebSocketClient {
       return;
     }
 
+    this.resetStreamState();
     // Reset manual close so reconnect logic can run.
     this.manualClose = false;
     // Notify consumers that we are attempting to connect.
@@ -63,6 +84,7 @@ export class WebSocketClient {
 
     // Open the WebSocket connection.
     const socket = new WebSocket(this.url);
+    socket.binaryType = "arraybuffer";
     this.socket = socket;
 
     // Handle successful connection.
@@ -75,21 +97,20 @@ export class WebSocketClient {
 
     // Handle incoming messages.
     socket.addEventListener("message", (event) => {
-      // Only parse string frames for now (binary handled later).
-      if (typeof event.data !== "string") {
+      if (typeof event.data === "string") {
+        this.handleJsonMessage(event.data);
         return;
       }
 
-      try {
-        // Parse the JSON payload from the server.
-        const frame = JSON.parse(event.data) as WebSocketFrame;
-        // Route status frames to the appropriate callback.
-        if (frame.frame_type === "status") {
-          this.callbacks.onStatusFrame?.(frame as StatusFrame);
-        }
-      } catch (error) {
-        // Log JSON parsing errors without breaking the client.
-        console.warn("Failed to parse WebSocket message", error);
+      if (event.data instanceof ArrayBuffer) {
+        this.handleBinaryMessage(event.data);
+        return;
+      }
+
+      if (event.data instanceof Blob) {
+        void event.data.arrayBuffer().then((buffer) => {
+          this.handleBinaryMessage(buffer);
+        });
       }
     });
 
@@ -104,6 +125,7 @@ export class WebSocketClient {
       this.socket = null;
       // Notify consumers that we are disconnected.
       this.callbacks.onConnectionStateChange?.("disconnected");
+      this.resetStreamState();
 
       // Exit early if the close was user-initiated.
       if (this.manualClose) {
@@ -131,6 +153,95 @@ export class WebSocketClient {
       this.socket.close();
       this.socket = null;
     }
+
+    this.resetStreamState();
+  }
+
+  private handleJsonMessage(raw: string) {
+    try {
+      // Parse the JSON payload from the server.
+      const frame = JSON.parse(raw) as WebSocketFrame;
+      // Route status frames to the appropriate callback.
+      if (frame.type === "status") {
+        this.callbacks.onStatusFrame?.(frame as StatusFrame);
+        return;
+      }
+      if (frame.type === "spectrum_meta") {
+        const meta = frame as SpectrumMetaFrame;
+        this.pendingSpectrumMeta.set(meta.payload_id, meta);
+        return;
+      }
+      if (frame.type === "spectrogram_meta") {
+        const meta = frame as SpectrogramMetaFrame;
+        this.pendingSpectrogramMeta.set(meta.payload_id, meta);
+      }
+    } catch (error) {
+      // Log JSON parsing errors without breaking the client.
+      console.warn("Failed to parse WebSocket message", error);
+    }
+  }
+
+  private handleBinaryMessage(buffer: ArrayBuffer) {
+    if (buffer.byteLength < SPAY_HEADER_BYTES) {
+      console.warn("Received truncated binary payload");
+      return;
+    }
+
+    const header = parseSpayHeader(buffer);
+    if (!header) {
+      return;
+    }
+
+    const payloadBuffer = buffer.slice(SPAY_HEADER_BYTES);
+    if (header.kind === SPAY_KIND_SPECTRUM) {
+      const meta = this.pendingSpectrumMeta.get(header.payloadId);
+      if (!meta) {
+        console.warn("Spectrum payload received without metadata");
+        return;
+      }
+      const expectedBytes = header.elementCount * Float32Array.BYTES_PER_ELEMENT;
+      if (payloadBuffer.byteLength < expectedBytes) {
+        console.warn("Spectrum payload shorter than expected");
+        return;
+      }
+      const payload = new Float32Array(payloadBuffer, 0, header.elementCount);
+      this.pendingSpectrumMeta.delete(header.payloadId);
+      this.callbacks.onSpectrumFrame?.({ meta, payload });
+      return;
+    }
+
+    if (header.kind === SPAY_KIND_SPECTROGRAM) {
+      const meta = this.pendingSpectrogramMeta.get(header.payloadId);
+      if (!meta) {
+        console.warn("Spectrogram payload received without metadata");
+        return;
+      }
+
+      if (meta.dtype === "u8") {
+        if (payloadBuffer.byteLength < header.elementCount) {
+          console.warn("Spectrogram payload shorter than expected");
+          return;
+        }
+        const payload = new Uint8Array(payloadBuffer, 0, header.elementCount);
+        this.pendingSpectrogramMeta.delete(header.payloadId);
+        this.callbacks.onSpectrogramFrame?.({ meta, payload });
+        return;
+      }
+
+      const expectedBytes = header.elementCount * Float32Array.BYTES_PER_ELEMENT;
+      if (payloadBuffer.byteLength < expectedBytes) {
+        console.warn("Spectrogram payload shorter than expected");
+        return;
+      }
+      const payload = new Float32Array(payloadBuffer, 0, header.elementCount);
+      this.pendingSpectrogramMeta.delete(header.payloadId);
+      this.callbacks.onSpectrogramFrame?.({ meta, payload });
+    }
+  }
+
+  private resetStreamState() {
+    this.pendingSpectrumMeta.clear();
+    this.pendingSpectrogramMeta.clear();
   }
 
   // Compute a backoff delay for reconnecting.
@@ -159,3 +270,42 @@ export class WebSocketClient {
     }, delayMs);
   }
 }
+
+type SpayHeader = {
+  kind: number;
+  payloadId: string;
+  elementCount: number;
+};
+
+const parseSpayHeader = (buffer: ArrayBuffer): SpayHeader | null => {
+  const magic = textDecoder.decode(new Uint8Array(buffer, 0, 4));
+  if (magic !== SPAY_MAGIC) {
+    console.warn("Invalid SPAY magic");
+    return null;
+  }
+
+  const view = new DataView(buffer, 0, SPAY_HEADER_BYTES);
+  const version = view.getUint16(4, true);
+  if (version !== SPAY_VERSION) {
+    console.warn("Unsupported SPAY version");
+    return null;
+  }
+
+  const kind = view.getUint16(6, true);
+  if (kind !== SPAY_KIND_SPECTRUM && kind !== SPAY_KIND_SPECTROGRAM) {
+    console.warn("Unsupported SPAY kind");
+    return null;
+  }
+
+  const payloadBytes = new Uint8Array(buffer, 8, 16);
+  const payloadId = bytesToUuid(payloadBytes);
+  const elementCount = view.getUint32(24, true);
+  return { kind, payloadId, elementCount };
+};
+
+const bytesToUuid = (bytes: Uint8Array): string => {
+  const hex = Array.from(bytes)
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
