@@ -15,6 +15,7 @@ Pluto Spectrum Analyzer is a real-time FFT spectrum viewer for the ADALM-Pluto S
 ## Requirements
 - Python 3.9+
 - Packages: pyadi-iio, numpy, pyqtgraph, PyQt5/PyQt6, jsonschema
+- Frontend: Node.js + npm (or compatible package manager)
 - OS: Windows and Linux are supported (Linux recommended for USB gadget mode)
 
 ### Server mode dependencies
@@ -52,6 +53,15 @@ python3 -m uvicorn pluto_spectrum_analyzer.server.app:app --reload
 
 See `docs/API.md` for the list of available REST endpoints and WebSocket
 streaming details.
+
+### Frontend dev
+From the `frontend/` directory:
+```bash
+npm install
+npm run dev
+```
+The dev server runs on port 5173 and proxies API calls from `/api` to
+`http://localhost:8000`. See `docs/FRONTEND_DEV.md` for more detail.
 
 ## Usage guide
 ### Typical workflows
