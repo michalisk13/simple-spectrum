@@ -91,7 +91,7 @@ function SpectrumPanel({ statusFrame, spectrumFrameRef }: SpectrumPanelProps) {
   }, [meta]);
 
   const isConnected = statusFrame?.connected ?? false;
-  const showDisconnected = !isConnected;
+  const showDisconnected = !isConnected && !hasTrace;
   const showAwaiting = isConnected && !hasTrace;
 
   return (

@@ -68,12 +68,26 @@ const SpectrumCanvas = ({ frameRef }: SpectrumCanvasProps) => {
       lastFrameRef.current = frame;
     }
 
+    const width = canvas.width;
+    const height = canvas.height;
     const lastFrame = lastFrameRef.current;
     if (!lastFrame) {
       if (lastSeqRef.current !== null || needsRedrawRef.current) {
         lastSeqRef.current = null;
         needsRedrawRef.current = false;
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = "#0b1220";
+        ctx.fillRect(0, 0, width, height);
+
+        ctx.strokeStyle = "rgba(148, 163, 184, 0.15)";
+        ctx.lineWidth = 1;
+        const gridLines = 4;
+        for (let i = 1; i <= gridLines; i += 1) {
+          const y = (height / (gridLines + 1)) * i;
+          ctx.beginPath();
+          ctx.moveTo(0, y);
+          ctx.lineTo(width, y);
+          ctx.stroke();
+        }
       }
       return;
     }
@@ -86,8 +100,6 @@ const SpectrumCanvas = ({ frameRef }: SpectrumCanvasProps) => {
     needsRedrawRef.current = false;
 
     const trace = lastFrame.payload;
-    const width = canvas.width;
-    const height = canvas.height;
 
     // Paint the background and grid.
     ctx.fillStyle = "#0b1220";

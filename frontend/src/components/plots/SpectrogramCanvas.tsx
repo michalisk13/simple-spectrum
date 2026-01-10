@@ -93,8 +93,10 @@ const SpectrogramCanvas = ({ frameRef }: SpectrogramCanvasProps) => {
       if (lastSeqRef.current !== null || needsRedrawRef.current) {
         lastSeqRef.current = null;
         needsRedrawRef.current = false;
-        bufferCtx.clearRect(0, 0, buffer.width, buffer.height);
+        bufferCtx.fillStyle = "#0b1220";
+        bufferCtx.fillRect(0, 0, buffer.width, buffer.height);
         ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(buffer, 0, 0, canvas.width, canvas.height);
       }
       return;
     }

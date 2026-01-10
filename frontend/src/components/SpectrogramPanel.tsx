@@ -81,7 +81,7 @@ function SpectrogramPanel({
   }, [meta]);
 
   const isConnected = statusFrame?.connected ?? false;
-  const showDisconnected = !isConnected;
+  const showDisconnected = !isConnected && !hasRow;
   const showAwaiting = isConnected && !hasRow;
 
   return (
