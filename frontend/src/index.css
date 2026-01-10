@@ -2,6 +2,12 @@
   font-family: "Inter", "Segoe UI", system-ui, sans-serif;
   color: #e6eef7;
   background-color: #0c1117;
+  --app-background: #0b1118;
+  --panel-background: #111827;
+  --panel-border: #1f2937;
+  --panel-surface: #0f172a;
+  --panel-elevated: rgba(15, 23, 42, 0.6);
+  --text-muted: #94a3b8;
 }
 
 * {
@@ -16,4 +22,63 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+.status-bar {
+  height: 64px;
+  padding: 0 24px;
+}
+
+.sidebar {
+  height: 100%;
+}
+
+.sidebar-section-title {
+  letter-spacing: 0.12em;
+}
+
+.sidebar-card {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.main-panel {
+  height: calc(100vh - 64px - 32px);
+}
+
+.panel-surface {
+  height: 100%;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-background);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel-placeholder {
+  flex: 1;
+  border-radius: 14px;
+  border: 1px dashed #334155;
+  background: var(--panel-elevated);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+}
+
+.resize-handle {
+  height: 10px;
+  margin: 8px 0;
+  border-radius: 999px;
+  background: rgba(51, 65, 85, 0.5);
+  cursor: row-resize;
+}
+
+.resize-handle[data-panel-group-direction="vertical"] {
+  width: 100%;
 }
