@@ -3445,7 +3445,7 @@ class SpectrumWindow(QtWidgets.QMainWindow):
 
         # Update status readout with current instrument state.
         self.cfg.rbw_hz = rbw
-        self.enbw_label.setText(f"{payload['enbw_bins']:.2f}")
+        self.enbw_label.setText(f"{spectrum_frame.enbw_bins:.2f}")
         update_hz = 1000.0 / max(1.0, float(self.cfg.update_ms))
         self.instrument_status.setText(
             " | ".join(
