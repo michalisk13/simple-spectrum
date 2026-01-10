@@ -49,7 +49,8 @@ export const useWebSocket = (): UseWebSocketResult => {
         },
         // Log errors to help diagnose connection issues.
         onError: (event) => {
-          console.warn("WebSocket error", event);
+          // Browser-level WebSocket errors are expected if the backend is down.
+          console.warn("WebSocket error (backend offline or restarting)", event);
         },
       },
     );

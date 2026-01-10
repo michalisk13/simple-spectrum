@@ -56,3 +56,6 @@ backend restarts without freezing the UI.
 ## Notes
 - If the backend is hosted remotely, set `VITE_WS_BASE_URL` to the base URL
   (for example, `ws://hostname:8000`) before running `npm run dev`.
+- Browser DevTools may log a WebSocket error while the backend is offline or
+  restarting; this is expected as long as the UI remains responsive and the
+  client reconnects once the backend is back online.
