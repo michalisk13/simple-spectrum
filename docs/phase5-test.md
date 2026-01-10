@@ -1,17 +1,15 @@
-# Phase 5 Web UI (Task C) Test Plan
+# Phase 5 Web UI (Task D) Test Plan
 
 ## Purpose
-Validate that the frontend WebSocket discovery hooks connect to the backend
-`/ws/stream` endpoint, log the incoming status frames, and recover from
-backend restarts without freezing the UI.
+Validate that the frontend canvas scaffolds render mock spectrum traces and
+spectrogram rows at 20 fps without SVG usage or UI stutter.
 
 ## Prerequisites
-- Backend running locally on `http://localhost:8000`.
+- Backend running locally on `http://localhost:8000` (optional for this task).
 - Frontend running locally on `http://localhost:5173`.
-- Optional: set `VITE_WS_BASE_URL` if the backend is hosted elsewhere.
 
 ## Environment setup
-1. Start the backend server:
+1. Start the backend server (optional for mock rendering validation):
    ```bash
    python3 -m uvicorn pluto_spectrum_analyzer.server.app:app --reload --host 0.0.0.0 --port 8000
    ```
@@ -23,44 +21,35 @@ backend restarts without freezing the UI.
    ```
 
 ## Test cases
-### 1) Initial WebSocket connect + StatusFrame logging
+### 1) Spectrum canvas renders mock trace
 1. Open the frontend in a browser.
-2. Open the browser DevTools console.
-3. Confirm a log entry appears similar to:
-   ```
-   Received StatusFrame { frame_type: "status", ... }
-   ```
+2. Inspect the Spectrum panel.
+3. Confirm a glowing polyline is animating.
+4. Inspect the DOM in DevTools and verify the plot is a `<canvas>` element.
 
 **Expected result**
-- Console logs at least one StatusFrame soon after page load.
-- UI remains responsive while logs appear.
+- The spectrum trace animates smoothly (target ~20 fps).
+- Rendering uses canvas only (no SVG elements for the plot).
 
-### 2) Backend restart reconnect
-1. With the frontend running, stop the backend server.
-2. Restart the backend server.
-3. Monitor the console for a new StatusFrame log after restart.
-
-**Expected result**
-- WebSocket reconnects automatically.
-- A new StatusFrame is logged after the backend is back online.
-- No UI lockups or crashes.
-
-### 3) Backend shutdown behavior
-1. Stop the backend server while keeping the frontend running.
-2. Continue interacting with the UI (sidebar toggle, panel resize).
+### 2) Spectrogram canvas renders mock rows
+1. Inspect the Spectrogram panel.
+2. Confirm the waterfall updates with scrolling color bands.
+3. Inspect the DOM in DevTools and verify the plot is a `<canvas>` element.
 
 **Expected result**
-- UI remains responsive with no freezes.
-- Connection attempts continue in the background until the backend returns.
+- The spectrogram scrolls smoothly without stutter.
+- Rendering uses canvas only (no SVG elements for the plot).
+
+### 3) 20 fps stability check
+1. Leave the UI running for at least 30 seconds.
+2. Observe both plots during the interval.
+
+**Expected result**
+- Animation remains smooth at a steady cadence.
+- No visual tearing or layout jitter in the panels.
 
 ## Notes
-- If the backend is hosted remotely, set `VITE_WS_BASE_URL` to the base URL
-  (for example, `ws://hostname:8000`) before running `npm run dev`.
-- Browser DevTools may log a WebSocket error while the backend is offline or
-  restarting; this is expected as long as the UI remains responsive and the
-  client reconnects once the backend is back online.
-- In React development mode (Strict Mode), effect mount/unmount cycles can
-  create quick connect/disconnect logs in the backend; this is normal during
-  development and should settle in production builds.
-- If the backend is not running yet, Vite may log `ECONNREFUSED` for `/api/status`
-  until the backend becomes available.
+- The mock rendering runs on a 20 fps animation loop and does not require a live
+  backend connection.
+- If the backend is offline, the status bar may show a disconnected badge; the
+  mock plots should continue to animate.
