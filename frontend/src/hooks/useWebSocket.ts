@@ -1,8 +1,8 @@
 // React hook for connecting to the backend WebSocket stream.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject } from "react";
 import { WebSocketClient, type WebSocketConnectionState } from "../ws/client";
-import type { StatusFrame } from "../ws/types";
+import type { SpectrogramFrame, SpectrumFrame, StatusFrame } from "../ws/types";
 
 // Default WebSocket base URL for local development.
 const DEFAULT_WS_BASE_URL = "ws://localhost:8000";
@@ -21,18 +21,43 @@ const buildWebSocketUrl = () => {
 export type UseWebSocketResult = {
   // Current WebSocket connection state.
   connectionState: WebSocketConnectionState;
+  // Most recent status frame, if any.
+  statusFrame: StatusFrame | null;
+  // Latest spectrum payload metadata + data (mutable ref for high-rate reads).
+  latestSpectrumFrameRef: MutableRefObject<SpectrumFrame | null>;
+  // Latest spectrogram payload metadata + data (mutable ref for high-rate reads).
+  latestSpectrogramFrameRef: MutableRefObject<SpectrogramFrame | null>;
+};
+
+export type UseWebSocketOptions = {
+  // Optional callback invoked for every status frame.
+  onStatusFrame?: (frame: StatusFrame) => void;
+  // Optional callback invoked for every spectrum payload.
+  onSpectrumFrame?: (frame: SpectrumFrame) => void;
+  // Optional callback invoked for every spectrogram payload.
+  onSpectrogramFrame?: (frame: SpectrogramFrame) => void;
 };
 
 // Connects to the backend stream and logs status frames for validation.
-export const useWebSocket = (): UseWebSocketResult => {
+export const useWebSocket = (
+  options: UseWebSocketOptions = {},
+): UseWebSocketResult => {
   // Track connection state for potential UI indicators.
   const [connectionState, setConnectionState] =
     useState<WebSocketConnectionState>("disconnected");
+  const [statusFrame, setStatusFrame] = useState<StatusFrame | null>(null);
   // Persist the client instance for the lifetime of the hook.
   const clientRef = useRef<WebSocketClient | null>(null);
+  const latestSpectrumFrameRef = useRef<SpectrumFrame | null>(null);
+  const latestSpectrogramFrameRef = useRef<SpectrogramFrame | null>(null);
+  const optionsRef = useRef(options);
 
   // Memoize the URL so we only build it once per hook instance.
   const wsUrl = useMemo(() => buildWebSocketUrl(), []);
+
+  useEffect(() => {
+    optionsRef.current = options;
+  }, [options]);
 
   useEffect(() => {
     // Create a new WebSocket client with reconnect support.
@@ -42,10 +67,24 @@ export const useWebSocket = (): UseWebSocketResult => {
         // Update state when the connection changes.
         onConnectionStateChange: (state) => {
           setConnectionState(state);
+          if (state === "disconnected") {
+            latestSpectrumFrameRef.current = null;
+            latestSpectrogramFrameRef.current = null;
+            setStatusFrame(null);
+          }
         },
-        // Log status frames for validation until rendering is implemented.
+        // Track status frames for UI synchronization.
         onStatusFrame: (frame: StatusFrame) => {
-          console.info("Received StatusFrame", frame);
+          setStatusFrame(frame);
+          optionsRef.current.onStatusFrame?.(frame);
+        },
+        onSpectrumFrame: (frame: SpectrumFrame) => {
+          latestSpectrumFrameRef.current = frame;
+          optionsRef.current.onSpectrumFrame?.(frame);
+        },
+        onSpectrogramFrame: (frame: SpectrogramFrame) => {
+          latestSpectrogramFrameRef.current = frame;
+          optionsRef.current.onSpectrogramFrame?.(frame);
         },
         // Log errors to help diagnose connection issues.
         onError: (event) => {
@@ -69,5 +108,10 @@ export const useWebSocket = (): UseWebSocketResult => {
     };
   }, [wsUrl]);
 
-  return { connectionState };
+  return {
+    connectionState,
+    statusFrame,
+    latestSpectrumFrameRef,
+    latestSpectrogramFrameRef,
+  };
 };
