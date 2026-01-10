@@ -1,4 +1,4 @@
-import { Group, Paper, Text } from "@mantine/core";
+import { Badge, Group, Paper, Text } from "@mantine/core";
 import { IconWaveSine } from "@tabler/icons-react";
 import { useCallback, useRef, useState } from "react";
 import SpectrumCanvas from "./plots/SpectrumCanvas";
@@ -25,12 +25,60 @@ function SpectrumPanel() {
 
   return (
     <Paper className="panel-surface" radius="lg" p="md">
-      <Group gap="xs" mb="sm">
-        <IconWaveSine size={18} />
-        <Text fw={600}>Spectrum</Text>
-        <Text size="sm" c="dimmed">
-          Live FFT trace
-        </Text>
+      <Group justify="space-between" align="center" className="panel-header">
+        <Group gap="xs">
+          <IconWaveSine size={18} />
+          <Text fw={600}>Spectrum</Text>
+          <Text size="sm" c="dimmed">
+            Live FFT trace
+          </Text>
+        </Group>
+        <Group gap="xs">
+          <Badge variant="light">FFT 8192</Badge>
+          <Badge variant="light">Update 100 ms</Badge>
+        </Group>
+      </Group>
+      <Group gap="lg" className="panel-meta">
+        <div className="panel-meta-item">
+          <Text size="xs" c="dimmed">
+            Center
+          </Text>
+          <Text size="sm" fw={500}>
+            2.437 GHz
+          </Text>
+        </div>
+        <div className="panel-meta-item">
+          <Text size="xs" c="dimmed">
+            Span
+          </Text>
+          <Text size="sm" fw={500}>
+            20 MHz
+          </Text>
+        </div>
+        <div className="panel-meta-item">
+          <Text size="xs" c="dimmed">
+            RBW / VBW
+          </Text>
+          <Text size="sm" fw={500}>
+            4.9 kHz / 3 kHz
+          </Text>
+        </div>
+        <div className="panel-meta-item">
+          <Text size="xs" c="dimmed">
+            Ref / Range
+          </Text>
+          <Text size="sm" fw={500}>
+            0 dB / 100 dB
+          </Text>
+        </div>
+        <div className="panel-meta-item">
+          <Text size="xs" c="dimmed">
+            Detector
+          </Text>
+          <Text size="sm" fw={500}>
+            RMS
+          </Text>
+        </div>
       </Group>
       <div className="plot-container">
         <SpectrumCanvas trace={trace} />

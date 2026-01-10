@@ -27,14 +27,62 @@ body {
 .status-bar {
   height: 64px;
   padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.status-meta {
+  color: var(--text-muted);
+}
+
+.status-right {
+  align-items: center;
+}
+
+.status-messages {
+  text-align: right;
 }
 
 .sidebar {
   height: 100%;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .sidebar-section-title {
   letter-spacing: 0.12em;
+  font-size: 0.7rem;
+}
+
+.sidebar-section {
+  border-radius: 14px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  padding: 12px;
+}
+
+.sidebar-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sidebar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sidebar-row .mantine-InputWrapper-root {
+  flex: 1;
+}
+
+.sidebar-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .sidebar-card {
@@ -62,6 +110,21 @@ body {
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+
+.panel-header {
+  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 8px;
+}
+
+.panel-meta {
+  color: var(--text-muted);
+}
+
+.panel-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .panel-placeholder {
