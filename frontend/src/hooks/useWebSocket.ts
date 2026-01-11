@@ -14,12 +14,21 @@ import type {
 // Default WebSocket base URL for local development.
 const DEFAULT_WS_BASE_URL = "ws://localhost:8000";
 
+const getDefaultWsBaseUrl = () => {
+  if (typeof window === "undefined") {
+    return DEFAULT_WS_BASE_URL;
+  }
+  const { protocol, host } = window.location;
+  const wsProtocol = protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProtocol}//${host}`;
+};
+
 // Build the WebSocket stream URL using Vite environment overrides.
 const buildWebSocketUrl = () => {
   // Prefer an explicit base URL from the environment, when provided.
   const envBaseUrl = import.meta.env.VITE_WS_BASE_URL as string | undefined;
   // Use the environment base or fall back to localhost.
-  const baseUrl = envBaseUrl ?? DEFAULT_WS_BASE_URL;
+  const baseUrl = envBaseUrl ?? getDefaultWsBaseUrl();
   // Always point at the backend stream endpoint.
   return new URL("/ws/stream", baseUrl).toString();
 };

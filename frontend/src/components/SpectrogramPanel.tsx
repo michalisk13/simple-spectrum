@@ -18,29 +18,50 @@ type SpectrogramPanelProps = {
   spectrogramFrameRef: MutableRefObject<SpectrogramFrame | null>;
 };
 
+const shouldUpdateSpectrogramMeta = (
+  previous: SpectrogramMetaFrame | null,
+  next: SpectrogramMetaFrame,
+) => {
+  if (!previous) {
+    return true;
+  }
+  return (
+    previous.colormap !== next.colormap ||
+    previous.db_min !== next.db_min ||
+    previous.db_max !== next.db_max ||
+    previous.quantized !== next.quantized ||
+    previous.dtype !== next.dtype
+  );
+};
+
 function SpectrogramPanel({
   statusFrame,
   spectrogramFrameRef,
 }: SpectrogramPanelProps) {
-  const [row, setRow] = useState<Float32Array | Uint8Array | null>(null);
   const [meta, setMeta] = useState<SpectrogramMetaFrame | null>(null);
+  const [hasRow, setHasRow] = useState(false);
   const lastSeqRef = useRef<number | null>(null);
+  const metaRef = useRef<SpectrogramMetaFrame | null>(null);
 
   const updateRow = useCallback(() => {
     const frame = spectrogramFrameRef.current;
     if (!frame) {
       if (lastSeqRef.current !== null) {
         lastSeqRef.current = null;
-        setRow(null);
+        metaRef.current = null;
         setMeta(null);
+        setHasRow(false);
       }
       return;
     }
 
     if (frame.meta.seq !== lastSeqRef.current) {
       lastSeqRef.current = frame.meta.seq;
-      setRow(frame.payload);
-      setMeta(frame.meta);
+      setHasRow(frame.payload.length > 0);
+      if (shouldUpdateSpectrogramMeta(metaRef.current, frame.meta)) {
+        metaRef.current = frame.meta;
+        setMeta(frame.meta);
+      }
     }
   }, [spectrogramFrameRef]);
 
@@ -60,7 +81,8 @@ function SpectrogramPanel({
   }, [meta]);
 
   const isConnected = statusFrame?.connected ?? false;
-  const hasRow = Boolean(row && row.length);
+  const showDisconnected = !isConnected && !hasRow;
+  const showAwaiting = isConnected && !hasRow;
 
   return (
     <Paper className="panel-surface" radius="lg" p="md">
@@ -126,11 +148,13 @@ function SpectrogramPanel({
         </div>
       </Group>
       <div className="plot-container">
-        {!isConnected || !hasRow ? (
-          <div className="panel-placeholder">Awaiting spectrogram stream…</div>
-        ) : (
-          <SpectrogramCanvas row={row ?? new Float32Array()} meta={meta} />
-        )}
+        <SpectrogramCanvas frameRef={spectrogramFrameRef} />
+        {showDisconnected ? (
+          <div className="plot-overlay">No data / disconnected</div>
+        ) : null}
+        {showAwaiting ? (
+          <div className="plot-overlay">Awaiting spectrogram stream…</div>
+        ) : null}
       </div>
     </Paper>
   );

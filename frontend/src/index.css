@@ -152,12 +152,25 @@ body {
   border: 1px solid #1f2a44;
   background: var(--panel-elevated);
   overflow: hidden;
+  position: relative;
 }
 
 .plot-canvas {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+.plot-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  background: rgba(11, 18, 32, 0.68);
+  backdrop-filter: blur(2px);
 }
 
 .resize-handle {

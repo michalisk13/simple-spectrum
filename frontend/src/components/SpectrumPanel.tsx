@@ -27,26 +27,48 @@ type SpectrumPanelProps = {
   spectrumFrameRef: MutableRefObject<SpectrumFrame | null>;
 };
 
+const shouldUpdateSpectrumMeta = (
+  previous: SpectrumMetaFrame | null,
+  next: SpectrumMetaFrame,
+) => {
+  if (!previous) {
+    return true;
+  }
+  return (
+    previous.freq_start_hz !== next.freq_start_hz ||
+    previous.freq_stop_hz !== next.freq_stop_hz ||
+    previous.rbw_hz !== next.rbw_hz ||
+    previous.vbw_hz !== next.vbw_hz ||
+    previous.fft_size !== next.fft_size ||
+    previous.detector !== next.detector
+  );
+};
+
 function SpectrumPanel({ statusFrame, spectrumFrameRef }: SpectrumPanelProps) {
-  const [trace, setTrace] = useState<Float32Array | null>(null);
   const [meta, setMeta] = useState<SpectrumMetaFrame | null>(null);
+  const [hasTrace, setHasTrace] = useState(false);
   const lastSeqRef = useRef<number | null>(null);
+  const metaRef = useRef<SpectrumMetaFrame | null>(null);
 
   const updateTrace = useCallback(() => {
     const frame = spectrumFrameRef.current;
     if (!frame) {
       if (lastSeqRef.current !== null) {
         lastSeqRef.current = null;
-        setTrace(null);
+        metaRef.current = null;
         setMeta(null);
+        setHasTrace(false);
       }
       return;
     }
 
     if (frame.meta.seq !== lastSeqRef.current) {
       lastSeqRef.current = frame.meta.seq;
-      setTrace(frame.payload);
-      setMeta(frame.meta);
+      setHasTrace(frame.payload.length > 0);
+      if (shouldUpdateSpectrumMeta(metaRef.current, frame.meta)) {
+        metaRef.current = frame.meta;
+        setMeta(frame.meta);
+      }
     }
   }, [spectrumFrameRef]);
 
@@ -69,7 +91,8 @@ function SpectrumPanel({ statusFrame, spectrumFrameRef }: SpectrumPanelProps) {
   }, [meta]);
 
   const isConnected = statusFrame?.connected ?? false;
-  const hasTrace = Boolean(trace && trace.length);
+  const showDisconnected = !isConnected && !hasTrace;
+  const showAwaiting = isConnected && !hasTrace;
 
   return (
     <Paper className="panel-surface" radius="lg" p="md">
@@ -135,11 +158,13 @@ function SpectrumPanel({ statusFrame, spectrumFrameRef }: SpectrumPanelProps) {
         </div>
       </Group>
       <div className="plot-container">
-        {!isConnected || !hasTrace ? (
-          <div className="panel-placeholder">Awaiting spectrum stream…</div>
-        ) : (
-          <SpectrumCanvas trace={trace ?? new Float32Array()} />
-        )}
+        <SpectrumCanvas frameRef={spectrumFrameRef} />
+        {showDisconnected ? (
+          <div className="plot-overlay">No data / disconnected</div>
+        ) : null}
+        {showAwaiting ? (
+          <div className="plot-overlay">Awaiting spectrum stream…</div>
+        ) : null}
       </div>
     </Paper>
   );
